@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RECYGO – Smart Waste & Recycling Platform</title>
+  <meta name="description" content="RECYGO – AI-powered scrap recycling marketplace connecting sellers, buyers, and administrators with transparent pricing and verified doorstep weigh-ins." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ===== NAVBAR ===== -->
+<nav class="navbar" id="navbar">
+  <div class="nav-brand">
+    <span class="brand-icon">🌿</span>
+    <span class="brand-text">RECYGO</span>
+    <span class="brand-badge">AI</span>
+  </div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" id="tab-seller" onclick="switchTab('seller')">
+      <span>📦</span> Sell Scrap
+    </button>
+    <button class="nav-tab" id="tab-buyer" onclick="switchTab('buyer')">
+      <span>🗺️</span> Find Scrap
+    </button>
+    <button class="nav-tab" id="tab-handover" onclick="switchTab('handover')">
+      <span>⚖️</span> Doorstep
+    </button>
+    <button class="nav-tab" id="tab-admin" onclick="switchTab('admin')">
+      <span>👑</span> Admin
+    </button>
+  </div>
+  <div class="nav-info" id="nav-user-info" style="display:flex;align-items:center;gap:10px;">
+    <select id="persona-switcher" class="persona-select" onchange="switchPersona(this.value)" title="Switch User Role / Persona">
+      <option value="seller">📦 Rajesh (Seller)</option>
+      <option value="buyer">🏪 Mohammed (Buyer)</option>
+      <option value="admin">👑 RECYGO Admin (Full Access)</option>
+    </select>
+    <span class="live-dot" title="Platform Online"></span>
+  </div>
+</nav>
+
+<!-- ===== TOAST CONTAINER ===== -->
+<div id="toast-container"></div>
+
+<!-- ===== SELLER TAB ===== -->
+<div class="tab-content active" id="content-seller">
+  <div class="page-header">
+    <h1 class="page-title">Sell Your Scrap</h1>
+    <p class="page-sub">AI scans your photo, estimates weight & gives instant payout</p>
+  </div>
+
+  <!-- Seller Registration -->
+  <div class="card" id="seller-reg-card">
+    <div class="card-header">
+      <div class="card-icon">👤</div>
+      <div>
+        <h2 class="card-title">Your Profile</h2>
+        <p class="card-desc">Quick setup – just your name & phone</p>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Full Name</label>
+        <input type="text" id="seller-name" class="form-input" placeholder="e.g. Rajesh Kumar" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Phone Number</label>
+        <input type="tel" id="seller-phone" class="form-input" placeholder="10-digit mobile" maxlength="10" />
+      </div>
+    </div>
+    <button class="btn btn-primary" id="seller-reg-btn" onclick="registerSeller()">
+      <span>Continue →</span>
+    </button>
+  </div>
+
+  <!-- AI Scrap Scanner -->
+  <div class="card hidden" id="scanner-card">
+    <div class="card-header">
+      <div class="card-icon">🤖</div>
+      <div>
+        <h2 class="card-title">AI Scrap Scanner</h2>
+        <p class="card-desc">Gemini 2.5 Flash identifies material & estimates weight</p>
+      </div>
+    </div>
+
+    <div class="upload-zone" id="upload-zone" onclick="document.getElementById('scrap-image').click()">
+      <input type="file" id="scrap-image" accept="image/*" capture="environment" onchange="handleImageUpload(event)" style="display:none" />
+      <div class="upload-icon">📷</div>
+      <p class="upload-text">Tap to photograph your scrap</p>
+      <p class="upload-sub">Supports JPG, PNG, HEIC</p>
+    </div>
+
+    <div id="image-preview-container" class="hidden">
+      <img id="image-preview" class="preview-img" src="" alt="Scrap preview" />
+      <button class="btn btn-ghost btn-sm" onclick="resetImage()">🔄 Retake Photo</button>
+    </div>
+
+    <button class="btn btn-ai" id="scan-btn" onclick="scanWithAI()" disabled>
+      <span class="btn-icon">✨</span> Scan with AI
+    </button>
+
+    <!-- AI Result -->
+    <div id="ai-result" class="hidden">
+      <div class="ai-result-header">
+        <div class="ai-badge">AI Analysis Complete</div>
+        <div class="confidence-pill" id="confidence-pill">95% confident</div>
+      </div>
+      <div class="ai-cards-grid">
+        <div class="ai-stat-card">
+          <div class="stat-label">Material</div>
+          <div class="stat-value" id="ai-material">—</div>
+        </div>
+        <div class="ai-stat-card highlight">
+          <div class="stat-label">Est. Weight</div>
+          <div class="stat-value" id="ai-weight">— kg</div>
+        </div>
+        <div class="ai-stat-card">
+          <div class="stat-label">Market Rate</div>
+          <div class="stat-value" id="ai-rate">₹—/kg</div>
+        </div>
+        <div class="ai-stat-card green">
+          <div class="stat-label">Est. Payout</div>
+          <div class="stat-value" id="ai-payout">₹—</div>
+        </div>
+      </div>
+      <div class="ai-notes" id="ai-notes-box">
+        <span class="notes-icon">💡</span>
+        <p id="ai-notes-text">Material notes will appear here</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Listing Form -->
+  <div class="card hidden" id="listing-card">
+    <div class="card-header">
+      <div class="card-icon">📋</div>
+      <div>
+        <h2 class="card-title">Create Listing</h2>
+        <p class="card-desc">Add location details so buyers can find you</p>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Listing Title</label>
+      <input type="text" id="listing-title" class="form-input" placeholder="e.g. Cardboard boxes (~5kg)" />
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Material Category</label>
+        <select id="listing-category" class="form-select" onchange="updateEstimatedPayout()">
+          <option value="">Select material...</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Weight (kg)</label>
+        <input type="number" id="listing-weight" class="form-input" placeholder="0.0" step="0.5" min="0.5" onchange="updateEstimatedPayout()" />
+      </div>
+    </div>
+
+    <div class="payout-preview" id="payout-preview">
+      <div class="payout-label">Estimated Payout</div>
+      <div class="payout-amount" id="payout-display">₹0.00</div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Address</label>
+      <input type="text" id="listing-address" class="form-input" placeholder="Street, Area, City" />
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">📍 Landmark</label>
+        <input type="text" id="listing-landmark" class="form-input" placeholder="Near State Bank ATM" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">🚪 Gate Instructions</label>
+        <input type="text" id="listing-gate" class="form-input" placeholder="Ring bell on ground floor" />
+      </div>
+    </div>
+
+    <div class="location-bar" id="location-bar">
+      <span class="loc-icon">📡</span>
+      <span id="location-status">Fetching your location...</span>
+      <button class="btn-link" onclick="getLocation()">Refresh</button>
+    </div>
+
+    <button class="btn btn-primary btn-full" onclick="publishListing()">
+      🚀 Publish Listing
+    </button>
+  </div>
+
+  <!-- Seller's Listings -->
+  <div class="card hidden" id="my-listings-card">
+    <div class="card-header">
+      <div class="card-icon">📊</div>
+      <div>
+        <h2 class="card-title">My Listings</h2>
+        <p class="card-desc">Track your active and completed pickups</p>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="loadMyListings()">↻ Refresh</button>
+    </div>
+    <div id="my-listings-list" class="listings-list"></div>
+    <div class="impact-tracker" id="impact-tracker">
+      <h3 class="impact-title">🌍 Your Recycling Impact</h3>
+      <div class="impact-grid">
+        <div class="impact-stat">
+          <div class="impact-val" id="imp-kg">0 kg</div>
+          <div class="impact-lbl">Recycled</div>
+        </div>
+        <div class="impact-stat">
+          <div class="impact-val" id="imp-co2">0 kg</div>
+          <div class="impact-lbl">CO₂ Saved</div>
+        </div>
+        <div class="impact-stat">
+          <div class="impact-val" id="imp-earn">₹0</div>
+          <div class="impact-lbl">Earned</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== BUYER TAB ===== -->
+<div class="tab-content hidden" id="content-buyer">
+  <div class="page-header">
+    <h1 class="page-title">Find Scrap Nearby</h1>
+    <p class="page-sub">Live map of verified pickups within your radius</p>
+  </div>
+
+  <!-- Buyer Registration -->
+  <div class="card" id="buyer-reg-card">
+    <div class="card-header">
+      <div class="card-icon">🏪</div>
+      <div>
+        <h2 class="card-title">Dealer Profile</h2>
+        <p class="card-desc">Setup your buyer account</p>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Business / Name</label>
+        <input type="text" id="buyer-name" class="form-input" placeholder="e.g. Mohammed Kabadi" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Phone Number</label>
+        <input type="tel" id="buyer-phone" class="form-input" placeholder="10-digit mobile" maxlength="10" />
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="registerBuyer()">Continue →</button>
+  </div>
+
+  <!-- Map Controls -->
+  <div class="card hidden" id="map-controls-card">
+    <div class="map-toolbar">
+      <div class="form-group" style="flex:1">
+        <select id="filter-category" class="form-select" onchange="loadNearbyListings()">
+          <option value="">All Materials</option>
+        </select>
+      </div>
+      <div class="form-group" style="width:150px">
+        <select id="filter-radius" class="form-select" onchange="loadNearbyListings()">
+          <option value="5000">5 km</option>
+          <option value="10000">10 km</option>
+          <option value="15000" selected>15 km</option>
+          <option value="25000">25 km</option>
+        </select>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="loadNearbyListings()">🔍 Search</button>
+    </div>
+    <div id="map-container" class="map-container"></div>
+    <div class="map-legend">
+      <div class="legend-item"><span class="pin-dot red"></span> Available</div>
+      <div class="legend-item"><span class="pin-dot blue"></span> Your Position</div>
+      <div class="legend-item" id="listing-count-badge">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Nearby Listings -->
+  <div class="card hidden" id="nearby-card">
+    <div class="card-header">
+      <div class="card-icon">📍</div>
+      <div>
+        <h2 class="card-title">Nearby Pickups</h2>
+        <p class="card-desc" id="nearby-subtitle">Searching...</p>
+      </div>
+    </div>
+    <div id="nearby-listings-list" class="listings-list"></div>
+  </div>
+</div>
+
+<!-- ===== HANDOVER TAB ===== -->
+<div class="tab-content hidden" id="content-handover">
+  <div class="page-header">
+    <h1 class="page-title">Doorstep Handover</h1>
+    <p class="page-sub">Weigh, verify, and settle with OTP confirmation</p>
+  </div>
+
+  <!-- Order Lookup -->
+  <div class="card" id="order-lookup-card">
+    <div class="card-header">
+      <div class="card-icon">🔍</div>
+      <div>
+        <h2 class="card-title">Load Order</h2>
+        <p class="card-desc">Enter the Order ID to begin doorstep process</p>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:1">
+        <label class="form-label">Order ID</label>
+        <input type="number" id="order-id-input" class="form-input" placeholder="e.g. 1" />
+      </div>
+      <button class="btn btn-primary" style="align-self:flex-end" onclick="loadOrder()">Load</button>
+    </div>
+    <div class="buyer-orders-shortcut hidden" id="buyer-orders-shortcut">
+      <p class="hint-text">Or pick from your accepted orders:</p>
+      <div id="buyer-order-pills" class="pill-list"></div>
+    </div>
+  </div>
+
+  <!-- Order Details -->
+  <div class="card hidden" id="order-detail-card">
+    <div class="card-header">
+      <div class="card-icon" id="order-cat-icon">📦</div>
+      <div>
+        <h2 class="card-title" id="order-title">Order Details</h2>
+        <p class="card-desc" id="order-subtitle">Scheduled pickup</p>
+      </div>
+      <div class="status-badge" id="order-status-badge">Scheduled</div>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-item">
+        <div class="info-lbl">Material</div>
+        <div class="info-val" id="od-material">—</div>
+      </div>
+      <div class="info-item">
+        <div class="info-lbl">Seller</div>
+        <div class="info-val" id="od-seller">—</div>
+      </div>
+      <div class="info-item">
+        <div class="info-lbl">Address</div>
+        <div class="info-val" id="od-address">—</div>
+      </div>
+      <div class="info-item">
+        <div class="info-lbl">Landmark</div>
+        <div class="info-val" id="od-landmark">—</div>
+      </div>
+      <div class="info-item full">
+        <div class="info-lbl">🚪 Gate Instructions</div>
+        <div class="info-val" id="od-gate">—</div>
+      </div>
+    </div>
+
+    <a id="nav-link" class="btn btn-nav" href="#" target="_blank">
+      🗺️ Open in Google Maps
+    </a>
+  </div>
+
+  <!-- Weigh-In Panel -->
+  <div class="card hidden" id="weigh-card">
+    <div class="card-header">
+      <div class="card-icon">⚖️</div>
+      <div>
+        <h2 class="card-title">Weigh-In Station</h2>
+        <p class="card-desc">Record gross weight and deduct tare</p>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Gross Weight (kg)</label>
+        <input type="number" id="gross-weight" class="form-input" placeholder="0.0" step="0.1" oninput="calculateNet()" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Container / Tare</label>
+        <select id="tare-type" class="form-select" onchange="calculateNet()">
+          <option value="none">No Tare (0 kg)</option>
+          <option value="gunny_sack">Gunny Sack (-0.5 kg)</option>
+          <option value="plastic_crate">Plastic Crate (-1.5 kg)</option>
+          <option value="metal_drum">Metal Drum (-5.0 kg)</option>
+          <option value="custom">Custom Tare...</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group hidden" id="custom-tare-group">
+      <label class="form-label">Custom Tare Weight (kg)</label>
+      <input type="number" id="custom-tare" class="form-input" placeholder="0.0" step="0.1" oninput="calculateNet()" />
+    </div>
+
+    <div class="weight-calc-box" id="weight-calc-box">
+      <div class="calc-row">
+        <span>Gross Weight</span><span id="calc-gross">0.0 kg</span>
+      </div>
+      <div class="calc-row deduct">
+        <span>Tare Deduction</span><span id="calc-tare">- 0.0 kg</span>
+      </div>
+      <div class="calc-row total">
+        <span>Net Weight</span><span id="calc-net">0.0 kg</span>
+      </div>
+      <div class="calc-row rate">
+        <span>Rate (₹/kg)</span><span id="calc-rate">₹0.00</span>
+      </div>
+      <div class="calc-row payout">
+        <span>💰 Final Payout</span><span id="calc-payout">₹0.00</span>
+      </div>
+    </div>
+
+    <!-- Scale Photo OCR -->
+    <div class="scale-section">
+      <div class="scale-header">
+        <h3 class="scale-title">📸 Scale Verification (Optional)</h3>
+        <span class="scale-hint">AI reads the scale display to verify</span>
+      </div>
+      <div class="upload-zone compact" id="scale-upload-zone" onclick="document.getElementById('scale-image').click()">
+        <input type="file" id="scale-image" accept="image/*" capture="environment" onchange="handleScaleImage(event)" style="display:none" />
+        <span>📷 Photograph Scale Display</span>
+      </div>
+      <div id="scale-verify-result" class="hidden"></div>
+    </div>
+
+    <button class="btn btn-primary btn-full" onclick="submitWeight()">
+      ✅ Confirm Weight & Proceed to OTP
+    </button>
+  </div>
+
+  <!-- OTP Panel -->
+  <div class="card hidden" id="otp-card">
+    <div class="card-header">
+      <div class="card-icon">🔐</div>
+      <div>
+        <h2 class="card-title">OTP Verification</h2>
+        <p class="card-desc">Seller provides the 4-digit code to confirm handover</p>
+      </div>
+    </div>
+
+    <div class="otp-summary" id="otp-summary">
+      <div class="summary-row"><span>Net Weight</span><span id="sum-weight">—</span></div>
+      <div class="summary-row"><span>Rate / kg</span><span id="sum-rate">—</span></div>
+      <div class="summary-row big"><span>💰 Amount</span><span id="sum-amount">₹0</span></div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Enter Seller's OTP</label>
+      <input type="text" id="otp-input" class="form-input otp-input" placeholder="• • • •" maxlength="6" />
+    </div>
+
+    <button class="btn btn-success btn-full" onclick="verifyOTP()">
+      🔓 Verify & Complete Transaction
+    </button>
+  </div>
+
+  <!-- Receipt -->
+  <div class="card hidden" id="receipt-card">
+    <div class="receipt-success">
+      <div class="success-icon">✅</div>
+      <h2 class="success-title">Transaction Complete!</h2>
+      <p class="success-sub">Digital receipt generated</p>
+    </div>
+    <div class="receipt-body" id="receipt-body"></div>
+    <div class="receipt-impact">
+      <div class="impact-row">
+        <span>🌿 CO₂ Saved</span><span id="receipt-co2">— kg</span>
+      </div>
+      <div class="impact-row">
+        <span>⚡ Energy Equiv.</span><span id="receipt-energy">— kWh</span>
+      </div>
+    </div>
+    <button class="btn btn-ghost btn-full" onclick="resetHandover()">Start New Pickup →</button>
+  </div>
+</div>
+
+<!-- ===== ADMIN TAB ===== -->
+<div class="tab-content hidden" id="content-admin">
+  <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;">
+    <div>
+      <h1 class="page-title">👑 Admin Control Center</h1>
+      <p class="page-sub">Omni-channel platform operations, live pricing, disputes & analytics</p>
+    </div>
+    <div class="admin-header-actions">
+      <button class="btn btn-ghost btn-sm" onclick="seedDemoData()">⚡ Seed Live Demo Data</button>
+      <button class="btn btn-primary btn-sm" onclick="loadAdminDashboard()">↻ Refresh</button>
+    </div>
+  </div>
+
+  <!-- Platform KPI Grid -->
+  <div class="admin-stats-grid">
+    <div class="admin-stat-card">
+      <div class="admin-stat-lbl">Recycled Volume</div>
+      <div class="admin-stat-val" id="adm-recycled">0 kg</div>
+      <div class="admin-stat-sub">Landfill diverted</div>
+    </div>
+    <div class="admin-stat-card amber">
+      <div class="admin-stat-lbl">Gross Turnover</div>
+      <div class="admin-stat-val" id="adm-turnover">₹0</div>
+      <div class="admin-stat-sub">Total marketplace GMV</div>
+    </div>
+    <div class="admin-stat-card">
+      <div class="admin-stat-lbl">Platform Commission</div>
+      <div class="admin-stat-val" id="adm-commission">₹0</div>
+      <div class="admin-stat-sub">10% monetization cut</div>
+    </div>
+    <div class="admin-stat-card blue">
+      <div class="admin-stat-lbl">CO₂ Emissions Saved</div>
+      <div class="admin-stat-val" id="adm-co2">0 kg</div>
+      <div class="admin-stat-sub" id="adm-trees">~0 trees equiv.</div>
+    </div>
+    <div class="admin-stat-card purple">
+      <div class="admin-stat-lbl">Active Listings</div>
+      <div class="admin-stat-val" id="adm-active-listings">0</div>
+      <div class="admin-stat-sub" id="adm-matched-sub">0 matched</div>
+    </div>
+    <div class="admin-stat-card">
+      <div class="admin-stat-lbl">Completed Pickups</div>
+      <div class="admin-stat-val" id="adm-completed-orders">0</div>
+      <div class="admin-stat-sub" id="adm-users-sub">0 registered users</div>
+    </div>
+  </div>
+
+  <!-- Admin Sub Navigation -->
+  <div class="admin-subnav">
+    <button class="admin-subtab active" id="subtab-rates" onclick="switchAdminSubtab('rates')">📊 Scrap Rates Manager</button>
+    <button class="admin-subtab" id="subtab-listings" onclick="switchAdminSubtab('listings')">📋 All Listings & Audit</button>
+    <button class="admin-subtab" id="subtab-orders" onclick="switchAdminSubtab('orders')">⚖️ Orders & Verification</button>
+    <button class="admin-subtab" id="subtab-users" onclick="switchAdminSubtab('users')">👥 User Directory</button>
+  </div>
+
+  <!-- SUBTAB 1: Scrap Rates Manager -->
+  <div class="card" id="admin-view-rates">
+    <div class="card-header">
+      <div class="card-icon">🏷️</div>
+      <div>
+        <h2 class="card-title">Live Scrap Pricing Engine</h2>
+        <p class="card-desc">Edit standard market rates per kg in real-time across the platform</p>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="showAddCategoryModal()">➕ Add Category</button>
+    </div>
+    <div class="admin-table-container">
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Material</th>
+            <th>Slug / Code</th>
+            <th>Standard Rate (₹/kg)</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="admin-rates-table-body">
+          <tr><td colspan="4" style="text-align:center;padding:20px;">Loading rates...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- SUBTAB 2: All Listings -->
+  <div class="card hidden" id="admin-view-listings">
+    <div class="card-header">
+      <div class="card-icon">📋</div>
+      <div>
+        <h2 class="card-title">Listings Moderation & Control</h2>
+        <p class="card-desc">Review scrap postings across all sellers</p>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <select id="admin-listing-filter" class="form-select" style="width:130px;padding:4px 8px;font-size:0.8rem;" onchange="loadAdminListings()">
+          <option value="all">All Status</option>
+          <option value="available">Available</option>
+          <option value="matched">Matched</option>
+          <option value="completed">Completed</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" onclick="loadAdminListings()">↻ Refresh</button>
+      </div>
+    </div>
+    <div class="admin-table-container">
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Scrap Item</th>
+            <th>Seller</th>
+            <th>Weight</th>
+            <th>Est. Payout</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="admin-listings-table-body">
+          <tr><td colspan="7" style="text-align:center;padding:20px;">Loading listings...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- SUBTAB 3: Orders & Verification -->
+  <div class="card hidden" id="admin-view-orders">
+    <div class="card-header">
+      <div class="card-icon">⚖️</div>
+      <div>
+        <h2 class="card-title">Doorstep Pickups & Settlement Audit</h2>
+        <p class="card-desc">Monitor OTP validations, tare deductions, and override disputed weights</p>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="loadAdminOrders()">↻ Refresh</button>
+    </div>
+    <div class="admin-table-container">
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Order #</th>
+            <th>Listing / Material</th>
+            <th>Buyer & Seller</th>
+            <th>Tare & Net Weight</th>
+            <th>Final Amount</th>
+            <th>OTP Code</th>
+            <th>Status</th>
+            <th>Admin Action</th>
+          </tr>
+        </thead>
+        <tbody id="admin-orders-table-body">
+          <tr><td colspan="8" style="text-align:center;padding:20px;">Loading orders...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- SUBTAB 4: User Directory -->
+  <div class="card hidden" id="admin-view-users">
+    <div class="card-header">
+      <div class="card-icon">👥</div>
+      <div>
+        <h2 class="card-title">User & Dealer Directory</h2>
+        <p class="card-desc">Manage registered sellers, collectors, and platform admins</p>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="loadAdminUsers()">↻ Refresh</button>
+    </div>
+    <div class="admin-table-container">
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Phone</th>
+            <th>Role</th>
+            <th>Activity</th>
+            <th>Switch Persona</th>
+          </tr>
+        </thead>
+        <tbody id="admin-users-table-body">
+          <tr><td colspan="6" style="text-align:center;padding:20px;">Loading users...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ADD CATEGORY MODAL ===== -->
+<div class="modal-overlay hidden" id="add-category-modal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>➕ Add New Scrap Category</h2>
+      <button class="modal-close" onclick="hideAddCategoryModal()">✕</button>
+    </div>
+    <div style="padding:16px 0;">
+      <div class="form-group">
+        <label class="form-label">Material Name</label>
+        <input type="text" id="new-cat-name" class="form-input" placeholder="e.g. Copper Grade A" />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Rate (₹/kg)</label>
+          <input type="number" id="new-cat-price" class="form-input" placeholder="e.g. 520.00" step="0.5" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Icon (Emoji)</label>
+          <input type="text" id="new-cat-icon" class="form-input" placeholder="⚡" value="♻️" />
+        </div>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="submitNewCategory()">Create Category</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== RATE CARD FLOATING BUTTON ===== -->
+<button class="fab" id="rate-fab" onclick="toggleRateCard()" title="Live Scrap Rates">
+  💹
+</button>
+
+<!-- ===== RATE CARD MODAL ===== -->
+<div class="modal-overlay hidden" id="rate-modal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>📊 Live Scrap Rates</h2>
+      <button class="modal-close" onclick="toggleRateCard()">✕</button>
+    </div>
+    <div id="rate-table-body" class="rate-table"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
