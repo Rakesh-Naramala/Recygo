@@ -47,6 +47,8 @@ router.get('/stats', async (req, res) => {
         total_users: users.length,
         sellers_count: users.filter(u => u.role === 'seller').length,
         buyers_count: users.filter(u => u.role === 'buyer').length,
+        total_reports: (embeddedDb.data.reports || []).length,
+        pending_reports: (embeddedDb.data.reports || []).filter(r => r.status === 'Open').length,
       }
     });
   } catch (error) {
@@ -266,6 +268,220 @@ router.post('/reset-demo', async (req, res) => {
     res.json({ success: true, message: 'Platform demo data reset successfully!', data: freshData });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/admin/reports - Get all submitted problem reports
+router.get('/reports', async (req, res) => {
+  try {
+    const reports = embeddedDb.data.reports || [];
+    res.json({ success: true, reports });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PATCH /api/admin/reports/:id - Update report status
+router.patch('/reports/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    const reports = embeddedDb.data.reports || [];
+    const report = reports.find(r => r.id === parseInt(id));
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+    report.status = status || 'Resolved';
+    report.resolved_at = new Date().toISOString();
+    embeddedDb.save();
+    res.json({ success: true, report, message: `Report #${report.ticket_number || report.id} updated to ${report.status}` });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PATCH /api/admin/users/:id/block - Block or unblock a seller, buyer, or admin (prime_admin only for admins)
+router.patch('/users/:id/block', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { is_blocked, requesting_role } = req.body;
+    const u = embeddedDb.data.users.find(user => user.id === parseInt(id));
+    if (!u) return res.status(404).json({ error: 'User not found' });
+
+    // Admin can block sellers/buyers but NOT other admins or prime_admin
+    if (u.role === 'admin' && requesting_role !== 'prime_admin') {
+      return res.status(403).json({ error: 'Only Prime Admin can block or unblock administrator accounts.' });
+    }
+    if (u.role === 'prime_admin') {
+      return res.status(400).json({ error: 'Cannot block the Prime Admin account.' });
+    }
+
+    u.is_blocked = (is_blocked !== undefined) ? !!is_blocked : !u.is_blocked;
+    embeddedDb.save();
+    res.json({
+      success: true,
+      user: u,
+      message: `${u.name} is now ${u.is_blocked ? '⛔ Blocked' : '✅ Active'}`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/admin/users/:id/password - Change password of seller or buyer on request
+router.patch('/users/:id/password', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { new_password } = req.body;
+    if (!new_password || new_password.trim().length < 4) {
+      return res.status(400).json({ error: 'New password must be at least 4 characters long' });
+    }
+    const u = embeddedDb.data.users.find(user => user.id === parseInt(id));
+    if (!u) return res.status(404).json({ error: 'User not found' });
+
+    u.password = new_password.trim();
+    embeddedDb.save();
+    res.json({
+      success: true,
+      message: `Password for ${u.name} (${u.role}) updated successfully!`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/create-admin - Add N number of admins
+router.post('/create-admin', async (req, res) => {
+  try {
+    const { name, phone, password } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Admin name is required' });
+    if (!phone || phone.trim().length < 10) return res.status(400).json({ error: 'Valid 10-digit phone number is required' });
+    if (!password || password.trim().length < 4) return res.status(400).json({ error: 'Admin password must be at least 4 characters' });
+
+    const cleanPhone = phone.trim();
+    const cleanName = name.trim();
+    const existing = embeddedDb.data.users.find(u => u.phone === cleanPhone);
+
+    if (existing) {
+      if (existing.role === 'admin') {
+        return res.status(400).json({ error: 'An admin with this phone number already exists' });
+      }
+      existing.role = 'admin';
+      existing.name = cleanName;
+      existing.password = password.trim();
+      embeddedDb.save();
+      return res.json({
+        success: true,
+        user: { id: existing.id, name: existing.name, phone: existing.phone, role: 'admin' },
+        message: `${cleanName} promoted to Admin successfully!`
+      });
+    }
+
+    const newId = embeddedDb.data.users.length ? Math.max(...embeddedDb.data.users.map(u => u.id)) + 1 : 1;
+    const newAdmin = {
+      id: newId,
+      name: cleanName,
+      phone: cleanPhone,
+      password: password.trim(),
+      role: 'admin',
+      lat: 12.9716,
+      lng: 77.5946,
+      created_at: new Date().toISOString()
+    };
+    embeddedDb.data.users.push(newAdmin);
+    embeddedDb.save();
+
+    const totalAdmins = embeddedDb.data.users.filter(u => u.role === 'admin').length;
+    res.json({
+      success: true,
+      user: { id: newAdmin.id, name: newAdmin.name, phone: newAdmin.phone, role: 'admin' },
+      message: `New Admin "${cleanName}" added successfully! (Total admins: ${totalAdmins})`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Helper for platform feature settings
+function getPlatformSettings() {
+  if (!embeddedDb.data.settings) {
+    embeddedDb.data.settings = {
+      ai_scanner_enabled: true,
+      scale_ocr_enabled: true,
+      instant_payout_preview: true,
+      public_registration: true,
+      commission_percent: 10,
+      maintenance_mode: false,
+    };
+    embeddedDb.save();
+  }
+  return embeddedDb.data.settings;
+}
+
+// GET /api/admin/settings - Get platform feature flags & parameters
+router.get('/settings', async (req, res) => {
+  try {
+    const settings = getPlatformSettings();
+    res.json({ success: true, settings });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/admin/settings - Change any platform feature flags & parameters
+router.put('/settings', async (req, res) => {
+  try {
+    const settings = getPlatformSettings();
+    const allowedKeys = [
+      'ai_scanner_enabled',
+      'scale_ocr_enabled',
+      'instant_payout_preview',
+      'public_registration',
+      'commission_percent',
+      'maintenance_mode'
+    ];
+
+    allowedKeys.forEach(k => {
+      if (req.body[k] !== undefined) {
+        if (typeof req.body[k] === 'boolean') {
+          settings[k] = req.body[k];
+        } else if (k === 'commission_percent') {
+          settings[k] = Math.max(0, Math.min(100, parseFloat(req.body[k]) || 10));
+        }
+      }
+    });
+
+    embeddedDb.save();
+    res.json({ success: true, settings, message: 'Platform features and controls updated!' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/change-master-password - Change master admin password
+router.post('/change-master-password', async (req, res) => {
+  try {
+    const { new_password } = req.body;
+    if (!new_password || new_password.trim().length < 4) {
+      return res.status(400).json({ error: 'Master Admin password must be at least 4 characters long' });
+    }
+    const settings = getPlatformSettings();
+    settings.admin_master_password = new_password.trim();
+    embeddedDb.save();
+
+    // Also update default admin account password
+    const defaultAdmin = embeddedDb.data.users.find(u => u.role === 'admin');
+    if (defaultAdmin) {
+      defaultAdmin.password = new_password.trim();
+      embeddedDb.save();
+    }
+
+    res.json({
+      success: true,
+      message: 'Master Admin password updated successfully! Use this new password for admin access.'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

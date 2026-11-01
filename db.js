@@ -38,11 +38,11 @@ function getInitialData() {
       { id: 12, name: 'rubber', display_name: 'Rubber / Tyres', standard_price_per_kg: 5.00, icon: '🛞', color: '#1f2937' },
     ],
     users: [
-      { id: 1, name: 'Rajesh Kumar', phone: '9876543210', role: 'seller', lat: 12.9716, lng: 77.5946, created_at: new Date().toISOString() },
-      { id: 2, name: 'Priya Sharma', phone: '9876543211', role: 'seller', lat: 12.9800, lng: 77.6100, created_at: new Date().toISOString() },
-      { id: 3, name: 'Mohammed Kabadi', phone: '9876543220', role: 'buyer', lat: 12.9650, lng: 77.5800, created_at: new Date().toISOString() },
-      { id: 4, name: 'Suresh Recyclers', phone: '9876543221', role: 'buyer', lat: 12.9900, lng: 77.6200, created_at: new Date().toISOString() },
-      { id: 5, name: 'RECYGO Super Admin', phone: '9999999999', role: 'admin', lat: 12.9716, lng: 77.5946, created_at: new Date().toISOString() },
+      { id: 1, name: 'Rajesh Kumar', phone: '9876543210', password: 'password123', role: 'seller', lat: 12.9716, lng: 77.5946, created_at: new Date().toISOString() },
+      { id: 2, name: 'Priya Sharma', phone: '9876543211', password: 'password123', role: 'seller', lat: 12.9800, lng: 77.6100, created_at: new Date().toISOString() },
+      { id: 3, name: 'Mohammed Kabadi', phone: '9876543220', password: 'password123', role: 'buyer', lat: 12.9650, lng: 77.5800, created_at: new Date().toISOString() },
+      { id: 4, name: 'Suresh Recyclers', phone: '9876543221', password: 'password123', role: 'buyer', lat: 12.9900, lng: 77.6200, created_at: new Date().toISOString() },
+      { id: 5, name: 'RECYGO Admin', phone: '9999999999', password: 'admin123', role: 'admin', lat: 12.9716, lng: 77.5946, created_at: new Date().toISOString() },
     ],
     listings: [
       {
@@ -177,6 +177,31 @@ function getInitialData() {
         completed_at: new Date(Date.now() - 82800000).toISOString(),
         created_at: new Date(Date.now() - 86400000).toISOString(),
       }
+    ],
+    reports: [
+      {
+        id: 1,
+        ticket_number: 'TKT-8241',
+        name: 'Rajesh Kumar',
+        phone: '9876543210',
+        issue_type: 'Weighing Dispute / Scale Mismatch',
+        order_id: '1',
+        description: 'Need clarification on tare container deduction for corrugated cardboard carton.',
+        status: 'Open',
+        created_at: new Date(Date.now() - 7200000).toISOString()
+      },
+      {
+        id: 2,
+        ticket_number: 'TKT-6190',
+        name: 'Mohammed Kabadi',
+        phone: '9876543220',
+        issue_type: 'App Technical Glitch',
+        order_id: null,
+        description: 'Camera preview occasionally takes 2 seconds to load on older Android browser.',
+        status: 'Resolved',
+        created_at: new Date(Date.now() - 86400000).toISOString(),
+        resolved_at: new Date(Date.now() - 43200000).toISOString()
+      }
     ]
   };
 }
@@ -191,7 +216,18 @@ class EmbeddedStore {
     try {
       if (fs.existsSync(DATA_FILE)) {
         const raw = fs.readFileSync(DATA_FILE, 'utf8');
-        return JSON.parse(raw);
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed.reports)) {
+          parsed.reports = [];
+        }
+        if (Array.isArray(parsed.users)) {
+          parsed.users.forEach(u => {
+            if (!u.password) {
+              u.password = u.role === 'admin' ? 'admin123' : 'password123';
+            }
+          });
+        }
+        return parsed;
       }
     } catch (e) {
       console.warn('⚠️ Could not load data_store.json, resetting to seed data:', e.message);

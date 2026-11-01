@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RECYGO Authentication</title>
+  <!-- Tailwind CDN (fast, no build step) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Custom dark‑mode gradient background */
+    body {background: linear-gradient(135deg, #0f172a, #1e293b);}
+    .card {background: rgba(255,255,255,0.05); backdrop-filter: blur(8px);}
+  </style>
+</head>
+<body class="flex items-center justify-center min-h-screen text-gray-100">
+  <div class="w-full max-w-md space-y-8">
+    <!-- Tabs -->
+    <div class="flex justify-center space-x-4" id="tab-group">
+      <button class="tab-btn px-4 py-2 rounded-t-lg bg-indigo-600" data-target="register">Register</button>
+      <button class="tab-btn px-4 py-2 rounded-t-lg bg-gray-700" data-target="login">Login</button>
+      <button class="tab-btn px-4 py-2 rounded-t-lg bg-gray-700" data-target="admin">Admin</button>
+    </div>
+
+    <!-- Register Form -->
+    <form id="register" class="card p-6 rounded-lg space-y-4" style="display:block;">
+      <h2 class="text-2xl font-semibold text-center">Create Account</h2>
+      <input type="text" name="name" placeholder="Full Name" required class="w-full p-2 rounded bg-gray-800 border border-gray-600"/>
+      <input type="email" name="email" placeholder="Email" required class="w-full p-2 rounded bg-gray-800 border border-gray-600"/>
+      <input type="tel" name="phone" placeholder="Phone" required pattern="[0-9]{10}" class="w-full p-2 rounded bg-gray-800 border border-gray-600"/>
+      <select name="role" class="w-full p-2 rounded bg-gray-800 border border-gray-600">
+        <option value="seller">Seller</option>
+        <option value="buyer">Buyer</option>
+      </select>
+      <input type="password" name="password" placeholder="Password" required minlength="4" class="w-full p-2 rounded bg-gray-800 border border-gray-600"/>
+      <button type="submit" class="w-full py-2 bg-indigo-600 rounded hover:bg-indigo-500 transition">Sign Up</button>
+    </form>
+
+    <!-- Login Form -->
+<form id="login" class="card p-6 rounded-lg space-y-4" style="display:none;">
+  <h2 class="text-2xl font-semibold text-center">Sign In</h2>
+  <input type="text" name="identifier" placeholder="Email or Phone" required class="w-full p-2 rounded bg-gray-800 border border-gray-600"/>
+  <input type="password" name="password" placeholder="Password" required class="w-full p-2 rounded bg-gray-800 border border-gray-600"/>
+  <div class="flex items-center justify-between text-sm">
+    <label class="inline-flex items-center">
+      <input type="checkbox" id="showPassword" class="form-checkbox h-4 w-4 text-indigo-600" />
+      <span class="ml-2">Show Password</span>
+    </label>
+    <button type="button" id="forgotBtn" class="text-indigo-400 hover:underline">Forgot Password?</button>
+  </div>
+  <button type="submit" class="w-full py-2 bg-indigo-600 rounded hover:bg-indigo-500 transition">Log In</button>
+  <div class="flex justify-between mt-4 space-x-2">
+    <button type="button" id="helpBtn" class="w-1/2 py-1 bg-gray-700 rounded hover:bg-gray-600 transition">Help</button>
+    <button type="button" id="contactBtn" class="w-1/2 py-1 bg-gray-700 rounded hover:bg-gray-600 transition">Contact</button>
+  </div>
+</form>
+
+    <!-- Admin Login Form -->
+    <form id="admin" class="card p-6 rounded-lg space-y-4" style="display:none;">
+      <h2 class="text-2xl font-semibold text-center">Admin Access</h2>
+      <input type="text" name="credential" placeholder="Admin Name / Username" required class="w-full p-2 rounded bg-gray-800 border border-gray-600"/>
+      <input type="password" name="password" placeholder="Admin Password" required class="w-full p-2 rounded bg-gray-800 border border-gray-600"/>
+      <button type="submit" class="w-full py-2 bg-red-600 rounded hover:bg-red-500 transition">Enter Admin</button>
+    </form>
+  </div>
+
+  <script>
+    // Simple tab switcher
+    const tabs = document.querySelectorAll('.tab-btn');
+    const forms = {register: document.getElementById('register'), login: document.getElementById('login'), admin: document.getElementById('admin')};
+    tabs.forEach(btn => {
+      btn.addEventListener('click', () => {
+        // Update tab styles
+        tabs.forEach(t => t.classList.replace('bg-indigo-600','bg-gray-700'));
+        btn.classList.replace('bg-gray-700','bg-indigo-600');
+        // Show appropriate form
+        Object.values(forms).forEach(f => f.style.display = 'none');
+        forms[btn.dataset.target].style.display = 'block';
+      });
+    });
+    // Submit handlers – adapt to your API endpoints
+    const apiBase = '/api/auth';
+    forms.register.addEventListener('submit', async e => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target));
+      const res = await fetch(`${apiBase}/register`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+      const out = await res.json();
+      alert(out.message || out.error);
+    });
+    forms.login.addEventListener('submit', async e => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target));
+      const res = await fetch(`${apiBase}/login`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+      const out = await res.json();
+      alert(out.message || out.error);
+      // Forgot Password placeholder
+      document.getElementById('forgotBtn')?.addEventListener('click', () => {
+        alert('Password recovery is not implemented yet. Please contact support.');
+      });
+      // Show / hide password toggle
+      document.getElementById('showPassword')?.addEventListener('change', (e) => {
+        const pwdField = document.querySelector('#login input[name="password"]');
+        if (pwdField) pwdField.type = e.target.checked ? 'text' : 'password';
+      });
+      // Help & Contact handlers
+      document.getElementById('helpBtn')?.addEventListener('click', () => {
+        alert('For assistance, email support@ecoscrap.com or call +1-800-123-4567.');
+      });
+      document.getElementById('contactBtn')?.addEventListener('click', () => {
+        window.location.href = 'mailto:support@ecoscrap.com';
+      });
+    });
+    forms.admin.addEventListener('submit', async e => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target));
+      const res = await fetch(`${apiBase}/admin-login`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+      const out = await res.json();
+      alert(out.message || out.error);
+    });
+  </script>
+</body>
+</html>

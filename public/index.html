@@ -12,6 +12,152 @@
 </head>
 <body>
 
+<!-- ===== TOAST CONTAINER ===== -->
+<div id="toast-container"></div>
+
+<!-- ===== AUTHENTICATION & REGISTRATION GATEWAY ===== -->
+<div id="auth-screen" class="auth-wrapper">
+  <div class="auth-topbar">
+    <div class="nav-brand">
+      <span class="brand-icon">🌿</span>
+      <span class="brand-text">RECYGO</span>
+      <span class="brand-badge">AI</span>
+    </div>
+    <div class="auth-topbar-actions">
+      <button type="button" class="btn btn-ghost btn-sm" id="auth-help-btn" onclick="openHelpModal('guide')" title="RECYGO Help & Guidelines">
+        <span>❓ Help</span>
+      </button>
+      <button type="button" class="btn btn-outline btn-sm" id="auth-pass-btn" onclick="openChangeMyPasswordModal()" title="Reset or Change Password">
+        <span>🔑 Password</span>
+      </button>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="openHelpModal('contacts')" title="Verified Admin Hotline">
+        <span>📞 Contacts</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="auth-container">
+    <div class="auth-card">
+      <div class="auth-badge-pill">🌿 SMART SCRAP & RECYCLING MARKETPLACE</div>
+      <h1 class="auth-title">Welcome to RECYGO</h1>
+      <p class="auth-sub">AI scrap scanning, instant doorstep weigh-in & guaranteed cash payouts.</p>
+
+      <!-- Auth Mode Tabs -->
+      <div class="auth-mode-tabs">
+        <button type="button" class="auth-mode-tab active" id="auth-tab-register" onclick="switchAuthMode('register')">
+          <span>📝 Register (New Access)</span>
+        </button>
+        <button type="button" class="auth-mode-tab" id="auth-tab-login" onclick="switchAuthMode('login')">
+          <span>🔑 Sign In</span>
+        </button>
+        <button type="button" class="auth-mode-tab" id="auth-tab-admin" onclick="switchAuthMode('admin')">
+          <span>👑 Admin Portal</span>
+        </button>
+      </div>
+
+      <!-- Auth Informational Notice -->
+      <div class="auth-alert" id="auth-alert-box">
+        <span class="alert-icon">ℹ️</span>
+        <span id="auth-alert-text">New users must first register to gain access to the platform.</span>
+      </div>
+
+      <!-- 1. REGISTRATION FORM -->
+      <form id="form-register" class="auth-form" onsubmit="event.preventDefault(); handleRegister();">
+        <div class="form-group">
+          <label class="form-label">Full Name <span class="req">*</span></label>
+          <input type="text" id="reg-name" class="form-input" placeholder="e.g. Rajesh Kumar" required autocomplete="name" />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Phone Number <span class="req">*</span></label>
+            <input type="tel" id="reg-phone" class="form-input" placeholder="10-digit mobile" maxlength="10" required autocomplete="tel" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password <span class="req">*</span></label>
+            <input type="password" id="reg-password" class="form-input" placeholder="Min 4 characters" minlength="4" required autocomplete="new-password" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Account Type / Role</label>
+          <select id="reg-role" class="form-select">
+            <option value="seller">📦 Scrap Seller (Household / Business / Society)</option>
+            <option value="buyer">🏪 Scrap Dealer / Collector (Doorstep Buyer)</option>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary btn-full btn-lg" id="btn-submit-register">
+          <span>🚀 Register & Enter Platform</span>
+        </button>
+        <p class="auth-foot-note">
+          Already registered? <a href="#" onclick="switchAuthMode('login'); return false;">Sign in here →</a>
+        </p>
+      </form>
+
+      <!-- 2. LOGIN FORM -->
+      <form id="form-login" class="auth-form hidden" onsubmit="event.preventDefault(); handleLogin();">
+        <div class="form-group">
+          <label class="form-label">Name or Phone Number <span class="req">*</span></label>
+          <input type="text" id="login-cred" class="form-input" placeholder="Enter full name or 10-digit phone" required autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <label class="form-label" style="margin:0;">Password <span class="req">*</span></label>
+            <a href="#" onclick="openChangeMyPasswordModal(); return false;" style="font-size:0.75rem;color:var(--green-400);text-decoration:none;font-weight:600;">🔑 Forgot / Change Password?</a>
+          </div>
+          <input type="password" id="login-password" class="form-input" placeholder="Enter your password" required autocomplete="current-password" />
+        </div>
+        <button type="submit" class="btn btn-primary btn-full btn-lg" id="btn-submit-login">
+          <span>🔓 Sign In to RECYGO</span>
+        </button>
+        <p class="auth-foot-note">
+          First time here? <a href="#" onclick="switchAuthMode('register'); return false;">Register first for access →</a>
+        </p>
+      </form>
+
+      <!-- 3. ADMIN PORTAL ACCESS FORM -->
+      <form id="form-admin-login" class="auth-form hidden" onsubmit="event.preventDefault(); handleAdminLogin();">
+        <div class="admin-callout">
+          <span style="font-size:1.8rem">👑</span>
+          <div>
+            <strong>Restricted Master Admin Network</strong>
+            <p>Admin has a separate dedicated password to manage market pricing, verify listings & moderate users.</p>
+          </div>
+        </div>
+        <!-- Prime Admin Info Box -->
+        <div style="background:linear-gradient(135deg,rgba(251,191,36,0.12),rgba(245,101,0,0.08));border:1px solid rgba(251,191,36,0.3);border-radius:10px;padding:10px 14px;margin-bottom:12px;">
+          <div style="font-size:0.78rem;font-weight:700;color:#fbbf24;margin-bottom:4px;">👑👑 Prime Admin Tier Available</div>
+          <div style="font-size:0.75rem;color:#94a3b8;line-height:1.4;">Prime Admin can <strong style="color:#fbbf24">add/block/unblock regular admins</strong>.<br/>Default Prime Password: <code style="background:rgba(251,191,36,0.15);padding:1px 5px;border-radius:4px;color:#fbbf24;">primeadmin123</code></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Admin Secret Password <span class="req">*</span></label>
+          <input type="password" id="admin-pass-input" class="form-input" placeholder="Admin: admin123 | Prime Admin: primeadmin123" required autocomplete="current-password" />
+        </div>
+        <button type="submit" class="btn btn-ai btn-full btn-lg" id="btn-submit-admin">
+          <span>👑 Unlock Admin Controls</span>
+        </button>
+        <p class="auth-foot-note">
+          Regular user? <a href="#" onclick="switchAuthMode('login'); return false;">Back to user sign in →</a>
+        </p>
+      </form>
+
+      <!-- Quick 1-Click Demo Fill -->
+      <div class="demo-quick-box">
+        <div class="demo-quick-title">⚡ 1-Click Test Quick Fill:</div>
+        <div class="demo-quick-chips">
+          <button type="button" class="quick-chip" onclick="quickFillAndLogin('seller')">
+            📦 Seller: Rajesh
+          </button>
+          <button type="button" class="quick-chip" onclick="quickFillAndLogin('buyer')">
+            🏪 Buyer: Mohammed
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MAIN AUTHENTICATED PLATFORM ===== -->
+<div id="main-app" class="hidden">
+
 <!-- ===== NAVBAR ===== -->
 <nav class="navbar" id="navbar">
   <div class="nav-brand">
@@ -30,21 +176,28 @@
       <span>⚖️</span> Doorstep
     </button>
     <button class="nav-tab" id="tab-admin" onclick="switchTab('admin')">
-      <span>👑</span> Admin
+      <span>👑</span> Admin <span id="admin-nav-lock" style="font-size:0.75rem;margin-left:2px;">🔒</span>
     </button>
   </div>
   <div class="nav-info" id="nav-user-info" style="display:flex;align-items:center;gap:10px;">
-    <select id="persona-switcher" class="persona-select" onchange="switchPersona(this.value)" title="Switch User Role / Persona">
-      <option value="seller">📦 Rajesh (Seller)</option>
-      <option value="buyer">🏪 Mohammed (Buyer)</option>
-      <option value="admin">👑 RECYGO Admin (Full Access)</option>
-    </select>
-    <span class="live-dot" title="Platform Online"></span>
+    <button class="btn btn-ghost btn-sm" onclick="openHelpModal('guide')" title="Open Platform Help, Admin Contacts & Rules">
+      <span>❓ Help</span>
+    </button>
+    <button class="btn btn-ghost btn-sm" onclick="openHelpModal('contacts')" title="Admin Contact Numbers &amp; Support Hotline">
+      <span>📞 Contacts</span>
+    </button>
+    <button class="btn btn-ghost btn-sm" onclick="openChangeMyPasswordModal()" title="Change Your Password">
+      <span>🔑 Password</span>
+    </button>
+    <div class="user-pill" id="navbar-user-pill" onclick="openChangeMyPasswordModal()" style="cursor:pointer;" title="Click to change your account password">
+      <span class="live-dot" title="Platform Online"></span>
+      <span id="nav-user-name">User</span>
+    </div>
+    <button class="btn btn-outline btn-sm logout-btn" onclick="handleLogout()" title="Sign Out of Platform">
+      <span>🚪 Logout</span>
+    </button>
   </div>
 </nav>
-
-<!-- ===== TOAST CONTAINER ===== -->
-<div id="toast-container"></div>
 
 <!-- ===== SELLER TAB ===== -->
 <div class="tab-content active" id="content-seller">
@@ -479,12 +632,21 @@
 <div class="tab-content hidden" id="content-admin">
   <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;">
     <div>
-      <h1 class="page-title">👑 Admin Control Center</h1>
+      <h1 class="page-title" id="admin-page-title">👑 Admin Control Center</h1>
       <p class="page-sub">Omni-channel platform operations, live pricing, disputes & analytics</p>
     </div>
     <div class="admin-header-actions">
       <button class="btn btn-ghost btn-sm" onclick="seedDemoData()">⚡ Seed Live Demo Data</button>
       <button class="btn btn-primary btn-sm" onclick="loadAdminDashboard()">↻ Refresh</button>
+    </div>
+  </div>
+
+  <!-- Prime Admin Banner (shown only when prime_admin is logged in) -->
+  <div id="prime-admin-banner" class="hidden" style="background:linear-gradient(135deg,rgba(251,191,36,0.12),rgba(245,101,0,0.08));border:1px solid rgba(251,191,36,0.3);border-radius:12px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:14px;">
+    <span style="font-size:2rem">👑👑</span>
+    <div>
+      <div style="font-weight:700;color:#fbbf24;font-size:0.95rem;">Prime Admin Superuser Mode Active</div>
+      <div style="font-size:0.8rem;color:#94a3b8;margin-top:2px;">Full superuser access. You can <strong style="color:#fbbf24">add new admins</strong>, <strong style="color:#fbbf24">block/unblock admin accounts</strong>, and manage all platform controls.</div>
     </div>
   </div>
 
@@ -528,6 +690,8 @@
     <button class="admin-subtab" id="subtab-listings" onclick="switchAdminSubtab('listings')">📋 All Listings & Audit</button>
     <button class="admin-subtab" id="subtab-orders" onclick="switchAdminSubtab('orders')">⚖️ Orders & Verification</button>
     <button class="admin-subtab" id="subtab-users" onclick="switchAdminSubtab('users')">👥 User Directory</button>
+    <button class="admin-subtab" id="subtab-reports" onclick="switchAdminSubtab('reports')">🚨 Problem Reports & Support (<span id="admin-reports-count-badge">0</span>)</button>
+    <button class="admin-subtab" id="subtab-settings" onclick="switchAdminSubtab('settings')">⚙️ Platform Features & Controls</button>
   </div>
 
   <!-- SUBTAB 1: Scrap Rates Manager -->
@@ -632,9 +796,12 @@
       <div class="card-icon">👥</div>
       <div>
         <h2 class="card-title">User & Dealer Directory</h2>
-        <p class="card-desc">Manage registered sellers, collectors, and platform admins</p>
+        <p class="card-desc">Block/unblock users, reset credentials upon request, and add new admins</p>
       </div>
-      <button class="btn btn-ghost btn-sm" onclick="loadAdminUsers()">↻ Refresh</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-primary btn-sm" onclick="showAddAdminModal()">➕ Add New Admin</button>
+        <button class="btn btn-ghost btn-sm" onclick="loadAdminUsers()">↻ Refresh</button>
+      </div>
     </div>
     <div class="admin-table-container">
       <table class="admin-table">
@@ -644,17 +811,140 @@
             <th>Name</th>
             <th>Phone</th>
             <th>Role</th>
+            <th>Status</th>
             <th>Activity</th>
-            <th>Switch Persona</th>
+            <th>Admin Actions</th>
           </tr>
         </thead>
         <tbody id="admin-users-table-body">
-          <tr><td colspan="6" style="text-align:center;padding:20px;">Loading users...</td></tr>
+          <tr><td colspan="7" style="text-align:center;padding:20px;">Loading users...</td></tr>
         </tbody>
       </table>
     </div>
   </div>
+
+  <!-- SUBTAB 5: Problem Reports & Support -->
+  <div class="card hidden" id="admin-view-reports">
+    <div class="card-header">
+      <div class="card-icon">🚨</div>
+      <div>
+        <h2 class="card-title">Problem Reports & Support Tickets</h2>
+        <p class="card-desc">User issues, weighing disputes, scale disagreements & resolutions</p>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="loadAdminReports()">↻ Refresh</button>
+    </div>
+    <div class="admin-table-container">
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Ticket #</th>
+            <th>User & Phone</th>
+            <th>Category</th>
+            <th>Order / Listing</th>
+            <th>Description</th>
+            <th>Date</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="admin-reports-table-body">
+          <tr><td colspan="8" style="text-align:center;padding:20px;">Loading reports...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- SUBTAB 6: Platform Features & Controls -->
+  <div class="card hidden" id="admin-view-settings">
+    <div class="card-header">
+      <div class="card-icon">⚙️</div>
+      <div>
+        <h2 class="card-title">Platform Feature Controls & Settings</h2>
+        <p class="card-desc">Admin can toggle any platform features, commission percentage, and maintenance</p>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="loadPlatformSettings()">↻ Reload</button>
+    </div>
+    <div style="padding:16px 0;">
+      <div class="settings-grid">
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-title">🤖 Gemini AI Scrap Scanner</span>
+            <span class="setting-desc">Enables automated visual scrap recognition and weight estimation for sellers</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setting-ai-scanner" onchange="savePlatformSetting('ai_scanner_enabled', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-title">📸 Doorstep Scale OCR Verification</span>
+            <span class="setting-desc">Allow buyers/dealers to photograph scale displays to detect weight tampering</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setting-scale-ocr" onchange="savePlatformSetting('scale_ocr_enabled', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-title">💰 Instant Payout Valuation Preview</span>
+            <span class="setting-desc">Display estimated earnings to sellers before they publish their scrap listing</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setting-payout-preview" onchange="savePlatformSetting('instant_payout_preview', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-title">📝 Open Public Self-Registration</span>
+            <span class="setting-desc">Permit new public visitors to register as scrap sellers or dealers</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setting-public-reg" onchange="savePlatformSetting('public_registration', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-title">⚠️ Platform Maintenance Mode</span>
+            <span class="setting-desc">Temporarily freeze doorstep order processing for scheduled platform maintenance</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setting-maintenance" onchange="savePlatformSetting('maintenance_mode', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-title">📊 Platform Commission Rate (%)</span>
+            <span class="setting-desc">Percentage cut retained on completed doorstep pickups</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input type="number" id="setting-commission" class="form-input" style="width:90px;" min="0" max="100" step="0.5" value="10">
+            <button class="btn btn-primary btn-sm" onclick="savePlatformSetting('commission_percent', parseFloat(document.getElementById('setting-commission').value))">Save %</button>
+        <div class="setting-item" style="border-top:1px solid rgba(255,255,255,0.08);padding-top:16px;margin-top:10px;">
+          <div class="setting-info">
+            <span class="setting-title">👑 Master Admin Password</span>
+            <span class="setting-desc">Change the secret password required to unlock Admin Console</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input type="password" id="setting-master-password" class="form-input" style="width:160px;" placeholder="New Admin Pass" minlength="4">
+            <button class="btn btn-primary btn-sm" id="btn-save-master-pass" onclick="saveMasterAdminPassword()">Update Pass</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
+
+</div><!-- ===== END MAIN AUTHENTICATED PLATFORM ===== -->
 
 <!-- ===== ADD CATEGORY MODAL ===== -->
 <div class="modal-overlay hidden" id="add-category-modal">
@@ -688,6 +978,11 @@
   💹
 </button>
 
+<!-- ===== HELP FLOATING BUTTON ===== -->
+<button class="fab fab-help" id="help-fab" onclick="openHelpModal('guide')" title="RECYGO Help, Process Guide & Support">
+  ❓
+</button>
+
 <!-- ===== RATE CARD MODAL ===== -->
 <div class="modal-overlay hidden" id="rate-modal">
   <div class="modal-card">
@@ -696,6 +991,367 @@
       <button class="modal-close" onclick="toggleRateCard()">✕</button>
     </div>
     <div id="rate-table-body" class="rate-table"></div>
+  </div>
+</div>
+
+<!-- ===== HELP & SUPPORT CENTER MODAL ===== -->
+<div class="modal-overlay hidden" id="help-modal">
+  <div class="modal-card modal-lg">
+    <div class="modal-header">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:1.6rem">🌿</span>
+        <div>
+          <h2 style="margin:0;font-size:1.25rem;">RECYGO Help & Support Center</h2>
+          <p style="margin:2px 0 0;font-size:0.8rem;color:var(--text-muted);">Platform guides, admin phone numbers, report problem & safety rules</p>
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeHelpModal()">✕</button>
+    </div>
+
+    <!-- Help Navigation Tabs -->
+    <div class="help-tabs">
+      <button class="help-tab active" id="help-tab-guide" onclick="switchHelpTab('guide')">
+        📖 Process Guide
+      </button>
+      <button class="help-tab" id="help-tab-contacts" onclick="switchHelpTab('contacts')">
+        📞 Admin Contacts
+      </button>
+      <button class="help-tab" id="help-tab-report" onclick="switchHelpTab('report')">
+        🚨 Report a Problem
+      </button>
+      <button class="help-tab" id="help-tab-rules" onclick="switchHelpTab('rules')">
+        📜 Rules & Regulations
+      </button>
+    </div>
+
+    <!-- TAB 1: Complete Process Guide -->
+    <div class="help-pane" id="help-pane-guide">
+      <div class="guide-grid">
+        <div class="guide-card">
+          <div class="guide-badge seller">📦 Scrap Sellers Guide</div>
+          <h3 class="guide-step-title">How to Sell Scrap from Your Doorstep:</h3>
+          <ol class="guide-steps">
+            <li><strong>Register & Sign In:</strong> Create your account with your Name, Phone Number, and Password to access the platform.</li>
+            <li><strong>Snap Scrap Photo:</strong> Use the AI Scrap Scanner to take a photo of your paper, plastic, metal, or e-waste.</li>
+            <li><strong>Instant AI Valuation:</strong> Gemini AI classifies material, estimates weight, and calculates your guaranteed payout based on real-time market rates.</li>
+            <li><strong>Add Pickup Details:</strong> Add your street address, landmark, and building/gate instructions.</li>
+            <li><strong>Doorstep Digital Weigh-In:</strong> Verified local collector arrives with a calibrated digital hanging or platform scale. Gross weight is weighed and container tare (sack/crate) is deducted transparently.</li>
+            <li><strong>4-Digit Handover OTP:</strong> Receive your cash/UPI payout and share the 4-digit OTP to lock transaction and generate your digital green receipt!</li>
+          </ol>
+        </div>
+
+        <div class="guide-card">
+          <div class="guide-badge buyer">🏪 Scrap Dealers / Buyers Guide</div>
+          <h3 class="guide-step-title">How to Claim & Collect Pickups:</h3>
+          <ol class="guide-steps">
+            <li><strong>Live Geospatial Radar:</strong> Open the radar map to view available scrap pickups within a 5km to 25km radius.</li>
+            <li><strong>Filter Materials:</strong> Filter by specific scrap items (copper, brass, batteries, cardboard, PET bottles).</li>
+            <li><strong>Accept Pickup:</strong> Claim the listing to receive exact landmark, directions, and direct seller contact.</li>
+            <li><strong>Doorstep Station:</strong> Open Doorstep tab, load Order ID, enter gross weight, and choose tare container deduction.</li>
+            <li><strong>AI Scale Verification:</strong> Snap a photo of the scale readout for instant tamper-proof verification.</li>
+            <li><strong>OTP Settlement:</strong> Enter seller's 4-digit OTP to finalize transaction and update inventory.</li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="guide-card admin" style="margin-top:14px;">
+        <div class="guide-badge admin">👑 Admin Master Network (Separate Password)</div>
+        <p style="margin:6px 0 0;font-size:0.88rem;color:var(--text-secondary);line-height:1.5;">
+          Administrators with the dedicated master password have full omni-channel access across the entire platform: monitor live GMV turnover, landfill diversion volume, real-time scrap price editor per kg, dispute resolutions, and moderation of all listings, orders, and registered accounts.
+        </p>
+      </div>
+    </div>
+
+    <!-- TAB 2: Admin Phone Numbers & Contacts -->
+    <div class="help-pane hidden" id="help-pane-contacts">
+      <div class="contacts-grid">
+        <div class="contact-box hotline">
+          <div class="contact-icon">📞</div>
+          <div class="contact-details">
+            <span class="contact-label">Platform Master Admin Helpline</span>
+            <span class="contact-value">+91 99999 99999</span>
+            <span class="contact-sub">Available 7 days a week: 7:00 AM - 9:00 PM IST</span>
+          </div>
+          <a href="tel:+919999999999" class="btn btn-primary btn-sm">Call Now</a>
+        </div>
+
+        <div class="contact-box">
+          <div class="contact-icon">📱</div>
+          <div class="contact-details">
+            <span class="contact-label">Doorstep Logistics & Weighing Support</span>
+            <span class="contact-value">+91 98765 43210</span>
+            <span class="contact-sub">Live dealer tracking & weighing dispute escalation</span>
+          </div>
+          <a href="tel:+919876543210" class="btn btn-outline btn-sm">Call Agent</a>
+        </div>
+
+        <div class="contact-box">
+          <div class="contact-icon">💬</div>
+          <div class="contact-details">
+            <span class="contact-label">WhatsApp Live Support Desk</span>
+            <span class="contact-value">+91 99999 99999</span>
+            <span class="contact-sub">Instant photo check, receipt query & fast resolution</span>
+          </div>
+          <a href="https://wa.me/919999999999?text=Hi%20RECYGO%20Admin%2C%20I%20need%20assistance" target="_blank" class="btn btn-success btn-sm">WhatsApp Chat</a>
+        </div>
+
+        <div class="contact-box">
+          <div class="contact-icon">✉️</div>
+          <div class="contact-details">
+            <span class="contact-label">Admin & Official Support Email</span>
+            <span class="contact-value">admin@recygo.com / support@recygo.org</span>
+            <span class="contact-sub">Written inquiries, corporate scrap partnerships & audits</span>
+          </div>
+          <a href="mailto:admin@recygo.com" class="btn btn-ghost btn-sm">Send Email</a>
+        </div>
+
+        <div class="contact-box full">
+          <div class="contact-icon">🏢</div>
+          <div class="contact-details">
+            <span class="contact-label">RECYGO Platform Headquarters</span>
+            <span class="contact-value">CleanTech Innovation Park, MG Road, Bengaluru, Karnataka 560001</span>
+            <span class="contact-sub">Toll-Free National Helpline: 1800-732-946 (1800-RECYGO)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: Report a Problem Form -->
+    <div class="help-pane hidden" id="help-pane-report">
+      <div class="report-intro">
+        <span style="font-size:1.6rem">🚨</span>
+        <div>
+          <h4 style="margin:0;font-size:1rem;">Submit a Problem or Dispute</h4>
+          <p style="margin:2px 0 0;font-size:0.82rem;color:var(--text-muted);">
+            Encountered a scale disagreement, delayed payment, buyer no-show, or technical bug? Report it below for immediate admin review within 2 hours.
+          </p>
+        </div>
+      </div>
+
+      <form id="problem-report-form" onsubmit="event.preventDefault(); submitProblemReport();">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Your Name <span class="req">*</span></label>
+            <input type="text" id="report-name" class="form-input" placeholder="e.g. Rajesh Kumar" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Contact Phone Number <span class="req">*</span></label>
+            <input type="tel" id="report-phone" class="form-input" placeholder="10-digit mobile" maxlength="10" required />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Problem Category <span class="req">*</span></label>
+            <select id="report-category" class="form-select" required>
+              <option value="Weighing Dispute / Scale Mismatch">⚖️ Weighing Dispute / Scale Mismatch</option>
+              <option value="Payment Delay / Amount Discrepancy">💸 Payment Delay / Amount Discrepancy</option>
+              <option value="Buyer / Collector No-Show">🚗 Buyer / Collector No-Show</option>
+              <option value="Suspicious Material / Fake Listing">🚫 Suspicious Material / Fake Listing</option>
+              <option value="OTP / Security Issue">🔐 OTP / Security Issue</option>
+              <option value="App Technical Glitch">📱 App Technical Glitch</option>
+              <option value="Other Complaint">❓ Other Complaint</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Order ID / Listing ID (Optional)</label>
+            <input type="text" id="report-order-id" class="form-input" placeholder="e.g. Order #1 or Listing #3" />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Detailed Description of the Issue <span class="req">*</span></label>
+          <textarea id="report-description" class="form-input" rows="3" placeholder="Provide full details of what occurred, including scrap item and collector name if applicable..." required></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-full" id="btn-submit-report">
+          <span>🚀 Submit Problem Report to Admin</span>
+        </button>
+      </form>
+
+      <div id="report-success-box" class="hidden report-success-card">
+        <div class="success-icon">✅</div>
+        <div>
+          <h4 id="report-ticket-title">Ticket Created!</h4>
+          <p id="report-ticket-msg" style="margin:2px 0 0;font-size:0.85rem;color:var(--text-secondary);"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 4: Rules & Regulations -->
+    <div class="help-pane hidden" id="help-pane-rules">
+      <div class="rules-list">
+        <div class="rule-item">
+          <div class="rule-num">1</div>
+          <div class="rule-content">
+            <h4>Strict Ban on Prohibited & Hazardous Materials</h4>
+            <p>Bio-medical waste, toxic chemicals, radioactive elements, explosives, firearms, ammunition, and public/municipal infrastructure items (e.g. street light copper cables, railway components, manhole covers) are strictly prohibited. Attempting to list stolen public property will lead to permanent blacklisting and mandatory police reporting.</p>
+          </div>
+        </div>
+
+        <div class="rule-item">
+          <div class="rule-num">2</div>
+          <div class="rule-content">
+            <h4>Transparent Digital Weighing & Approved Tare Standards</h4>
+            <p>All weigh-ins must take place in plain sight of both parties using a zero-calibrated digital hanging or platform scale. Tare deductions are restricted to verified standard containers: Gunny Sack (-0.5 kg), Plastic Crate (-1.5 kg), Metal Drum (-5.0 kg). Artificial weighting (adding water, rocks, or sand) is deemed fraud.</p>
+          </div>
+        </div>
+
+        <div class="rule-item">
+          <div class="rule-num">3</div>
+          <div class="rule-content">
+            <h4>OTP Handover Protection & Settlement Policy</h4>
+            <p>The 4-digit Handover OTP is the legal confirmation of scrap transfer. Sellers MUST NOT share the OTP until all scrap items have been weighed and cash or instant UPI payment has been received. Once the buyer submits the OTP, the transaction is non-reversible.</p>
+          </div>
+        </div>
+
+        <div class="rule-item">
+          <div class="rule-num">4</div>
+          <div class="rule-content">
+            <h4>Dealer Punctuality & Verification Protocol</h4>
+            <p>Approved collectors must carry valid government ID, wear RECYGO digital badges, and arrive within the scheduled 60-minute pickup window. Unjustified cancellations or repeated no-shows will trigger dealer account suspension.</p>
+          </div>
+        </div>
+
+        <div class="rule-item">
+          <div class="rule-num">5</div>
+          <div class="rule-content">
+            <h4>Dispute Resolution & 24-Hour Redressal Window</h4>
+            <p>Any dispute regarding rate differences, incorrect gross weight, or unpaid tare adjustments must be filed within 24 hours of the pickup via the Help modal or Admin hotline (+91 99999 99999) for mediation.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ADMIN PASSWORD MODAL ===== -->
+<div class="modal-overlay hidden" id="admin-password-modal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:1.4rem">👑</span>
+        <h2 style="margin:0;font-size:1.15rem;">Admin Verification Required</h2>
+      </div>
+      <button class="modal-close" onclick="closeAdminPasswordModal()">✕</button>
+    </div>
+    <div style="padding:16px 0;">
+      <p style="font-size:0.88rem;color:var(--text-secondary);margin-bottom:14px;line-height:1.4;">
+        Platform administration controls (pricing engine, audit logs, user directory, and disputes) require the separate Admin Secret Password.
+      </p>
+      <div class="form-group">
+        <label class="form-label">Admin Password</label>
+        <input type="password" id="modal-admin-password" class="form-input" placeholder="Enter admin password (Default: admin123)" onkeydown="if(event.key==='Enter') verifyAdminPasswordFromModal()" />
+      </div>
+      <div style="display:flex;gap:10px;margin-top:16px;">
+        <button class="btn btn-ghost" style="flex:1" onclick="closeAdminPasswordModal()">Cancel</button>
+        <button class="btn btn-primary" style="flex:2" onclick="verifyAdminPasswordFromModal()">Unlock Admin Controls</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ADD ADMIN MODAL (N ADULT ADMINS) ===== -->
+<div class="modal-overlay hidden" id="add-admin-modal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:1.4rem">👑</span>
+        <h2 style="margin:0;font-size:1.15rem;">Add New Platform Administrator</h2>
+      </div>
+      <button class="modal-close" onclick="closeAddAdminModal()">✕</button>
+    </div>
+    <form onsubmit="event.preventDefault(); submitNewAdmin();" style="padding:16px 0;">
+      <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:14px;">
+        Create additional admin accounts with full network authority (pricing, user management, feature controls).
+      </p>
+      <div class="form-group">
+        <label class="form-label">Admin Full Name <span class="req">*</span></label>
+        <input type="text" id="new-admin-name" class="form-input" placeholder="e.g. Operations Admin - Priya" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Phone Number <span class="req">*</span></label>
+        <input type="tel" id="new-admin-phone" class="form-input" placeholder="10-digit mobile" maxlength="10" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Dedicated Admin Password <span class="req">*</span></label>
+        <input type="password" id="new-admin-password" class="form-input" placeholder="Min 4 characters" minlength="4" required />
+      </div>
+      <div style="display:flex;gap:10px;margin-top:16px;">
+        <button type="button" class="btn btn-ghost" style="flex:1" onclick="closeAddAdminModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" style="flex:2" id="btn-create-admin">Create Administrator</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===== CHANGE USER PASSWORD MODAL (UPON REQUEST) ===== -->
+<div class="modal-overlay hidden" id="change-password-modal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:1.4rem">🔑</span>
+        <h2 style="margin:0;font-size:1.15rem;">Reset / Change User Password</h2>
+      </div>
+      <button class="modal-close" onclick="closeChangePasswordModal()">✕</button>
+    </div>
+    <form onsubmit="event.preventDefault(); submitUserPasswordChange();" style="padding:16px 0;">
+      <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:14px;">
+        Updating credentials for <strong id="cp-user-name" style="color:var(--green-400);">User</strong> upon customer support request.
+      </p>
+      <input type="hidden" id="cp-user-id" value="" />
+      <div class="form-group">
+        <label class="form-label">New Password <span class="req">*</span></label>
+        <input type="password" id="cp-new-password" class="form-input" placeholder="Enter new password (min 4 chars)" minlength="4" required />
+      </div>
+      <div style="display:flex;gap:10px;margin-top:16px;">
+        <button type="button" class="btn btn-ghost" style="flex:1" onclick="closeChangePasswordModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" style="flex:2" id="btn-save-user-password">Save New Password</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===== CHANGE MY PASSWORD MODAL (SELLER / BUYER / ADMIN SELF-SERVICE) ===== -->
+<div class="modal-overlay hidden" id="change-my-password-modal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:1.4rem">🔑</span>
+        <h2 style="margin:0;font-size:1.15rem;" id="cmp-modal-title">Reset / Change Password</h2>
+      </div>
+      <button class="modal-close" onclick="closeChangeMyPasswordModal()">✕</button>
+    </div>
+    <form onsubmit="event.preventDefault(); submitChangeMyPassword();" style="padding:16px 0;">
+      <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:14px;" id="cmp-instruction">
+        Updating credentials for <strong id="cmp-user-label" style="color:var(--green-400);">Account</strong>.
+      </p>
+
+      <!-- Credential input for non-logged-in / forgot-password users -->
+      <div class="form-group hidden" id="cmp-cred-group">
+        <label class="form-label">Registered Name or Phone Number <span class="req">*</span></label>
+        <input type="text" id="cmp-cred" class="form-input" placeholder="Enter your registered name or 10-digit mobile" />
+      </div>
+
+      <!-- Current password input for logged-in users -->
+      <div class="form-group" id="cmp-old-pass-group">
+        <label class="form-label">Current Password <span class="req">*</span></label>
+        <input type="password" id="cmp-old-password" class="form-input" placeholder="Enter current password" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">New Password <span class="req">*</span></label>
+        <input type="password" id="cmp-new-password" class="form-input" placeholder="Min 4 characters" minlength="4" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Confirm New Password <span class="req">*</span></label>
+        <input type="password" id="cmp-confirm-password" class="form-input" placeholder="Repeat new password" minlength="4" required />
+      </div>
+      <div style="display:flex;gap:10px;margin-top:16px;">
+        <button type="button" class="btn btn-ghost" style="flex:1" onclick="closeChangeMyPasswordModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" style="flex:2" id="btn-submit-cmp">Update Password</button>
+      </div>
+    </form>
   </div>
 </div>
 

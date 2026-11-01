@@ -9,6 +9,9 @@
 // STATE
 // ──────────────────────────────────────────────
 const STATE = {
+  currentUser: null,  // { id, name, phone, role }
+  isAdmin: false,     // separate admin password verified
+  isPrimeAdmin: false, // prime admin superuser access
   seller: null,       // { id, name, phone }
   buyer: null,        // { id, name, phone }
   listing: null,      // current AI-scan + created listing
@@ -42,6 +45,14 @@ function showToast(message, type = 'info', duration = 4000) {
 // TAB SWITCHING
 // ──────────────────────────────────────────────
 function switchTab(tab) {
+  if (tab === 'admin' && !STATE.isAdmin) {
+    const modalInput = document.getElementById('modal-admin-password');
+    if (modalInput) modalInput.value = '';
+    show('admin-password-modal');
+    showToast('Admin password required to enter platform management 👑', 'info');
+    return;
+  }
+
   ['seller', 'buyer', 'handover', 'admin'].forEach(t => {
     const content = document.getElementById(`content-${t}`);
     const tabBtn  = document.getElementById(`tab-${t}`);
@@ -195,8 +206,8 @@ async function registerSeller() {
     // Resolve id when existing user returned
     if (data.existing && data.user?.id) STATE.seller.id = data.user.id;
 
-    document.getElementById('nav-user-info').innerHTML =
-      `<span class="live-dot"></span> ${name}`;
+    const nameEl = document.getElementById('nav-user-name');
+    if (nameEl) nameEl.textContent = `${name} (📦 Seller)`;
     hide('seller-reg-card');
     show('scanner-card');
     show('listing-card');
@@ -893,10 +904,7 @@ function resetHandover() {
 // ──────────────────────────────────────────────
 // UTILS
 // ──────────────────────────────────────────────
-function escHtml(str) {
-  if (!str) return '';
-  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
+// NOTE: escHtml is defined once below (line ~1270) using String() for full safety.
 
 // ──────────────────────────────────────────────
 // PERSONA & ROLE SWITCHER
@@ -942,7 +950,7 @@ let currentAdminSubtab = 'rates';
 
 function switchAdminSubtab(sub) {
   currentAdminSubtab = sub;
-  ['rates', 'listings', 'orders', 'users'].forEach(s => {
+  ['rates', 'listings', 'orders', 'users', 'reports', 'settings'].forEach(s => {
     document.getElementById(`subtab-${s}`)?.classList.toggle('active', s === sub);
     document.getElementById(`admin-view-${s}`)?.classList.toggle('hidden', s !== sub);
   });
@@ -951,9 +959,22 @@ function switchAdminSubtab(sub) {
   if (sub === 'listings') loadAdminListings();
   if (sub === 'orders')   loadAdminOrders();
   if (sub === 'users')    loadAdminUsers();
+  if (sub === 'reports')  loadAdminReports();
+  if (sub === 'settings') loadPlatformSettings();
 }
 
 async function loadAdminDashboard() {
+  // Show/hide prime admin banner and update page title
+  const banner = document.getElementById('prime-admin-banner');
+  if (banner) {
+    if (STATE.isPrimeAdmin) banner.classList.remove('hidden');
+    else banner.classList.add('hidden');
+  }
+  const titleEl = document.getElementById('admin-page-title');
+  if (titleEl) {
+    titleEl.textContent = STATE.isPrimeAdmin ? '👑👑 Prime Admin Control Center' : '👑 Admin Control Center';
+  }
+
   try {
     const res = await fetch('/api/admin/stats');
     const data = await res.json();
@@ -968,12 +989,18 @@ async function loadAdminDashboard() {
       setText('adm-matched-sub', `${s.matched_listings_count} in pickup`);
       setText('adm-completed-orders', `${s.completed_orders_count}`);
       setText('adm-users-sub', `${s.total_users} registered (${s.sellers_count}S / ${s.buyers_count}B)`);
+
+      const rBadge = document.getElementById('admin-reports-count-badge');
+      if (rBadge && s.pending_reports !== undefined) {
+        rBadge.textContent = s.pending_reports;
+      }
     }
   } catch (e) {
     console.warn('Could not load admin stats:', e.message);
   }
   switchAdminSubtab(currentAdminSubtab);
 }
+
 
 // ──────────────────────────────────────────────
 // ADMIN — RATES MANAGER
@@ -1250,7 +1277,19 @@ function inspectOrderInHandover(orderId) {
 }
 
 // ──────────────────────────────────────────────
-// ADMIN — USERS DIRECTORY
+// ESCAPING UTILITY (single canonical definition)
+// ──────────────────────────────────────────────
+function escHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+// ──────────────────────────────────────────────
+// ADMIN — USERS DIRECTORY & CONTROLS
 // ──────────────────────────────────────────────
 async function loadAdminUsers() {
   const tbody = document.getElementById('admin-users-table-body');
@@ -1262,30 +1301,284 @@ async function loadAdminUsers() {
     const users = data.users || [];
 
     if (!users.length) {
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:16px;">No users found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:16px;">No users found.</td></tr>';
       return;
     }
 
-    tbody.innerHTML = users.map(u => `
-      <tr>
-        <td style="font-weight:700;">#${u.id}</td>
-        <td><strong>${escHtml(u.name)}</strong></td>
-        <td style="font-family:monospace;">${escHtml(u.phone)}</td>
-        <td>
-          <span class="admin-badge ${u.role}">${u.role}</span>
-        </td>
-        <td style="font-size:0.8rem;color:var(--text-secondary);">
-          ${u.role === 'seller' ? `${u.listings_count} listings posted` : u.role === 'buyer' ? `${u.orders_count} orders claimed` : 'System Administrator'}
-        </td>
-        <td>
-          <button class="btn-action ${u.role === 'seller' ? 'success' : ''}" onclick="switchPersona('${u.role}')">
-            ⚡ Switch to ${u.role.toUpperCase()}
-          </button>
-        </td>
-      </tr>
-    `).join('');
+    tbody.innerHTML = users.map(u => {
+      const isBlocked = !!u.is_blocked;
+      const isAdminUser = u.role === 'admin' || u.role === 'prime_admin';
+      const isPrimeAdminUser = u.role === 'prime_admin';
+      const viewerIsPrime = STATE.isPrimeAdmin;
+
+      return `
+        <tr${isBlocked ? ' style="opacity:0.6;"' : ''}>
+          <td style="font-weight:700;">#${u.id}</td>
+          <td>
+            <strong>${escHtml(u.name)}</strong>
+            ${isPrimeAdminUser ? '<span style="color:var(--amber-400);font-size:0.75rem;margin-left:4px;">(Prime Admin)</span>' : ''}
+            ${isBlocked ? '<span style="color:var(--red-400);font-size:0.75rem;margin-left:4px;">(Suspended)</span>' : ''}
+          </td>
+          <td>
+            <a href="tel:${escHtml(u.phone)}" style="font-family:monospace;color:var(--green-400);text-decoration:none;">
+              📞 ${escHtml(u.phone)}
+            </a>
+          </td>
+          <td>
+            <span class="admin-badge ${u.role === 'prime_admin' ? 'prime' : u.role}">${u.role === 'prime_admin' ? '👑👑 PRIME ADMIN' : u.role.toUpperCase()}</span>
+          </td>
+          <td>
+            <span class="status-pill ${isBlocked ? 'open' : 'resolved'}">
+              ${isBlocked ? '⛔ Blocked' : '✅ Active'}
+            </span>
+          </td>
+          <td style="font-size:0.8rem;color:var(--text-secondary);">
+            ${u.role === 'seller' ? `${u.listings_count || 0} listings posted` : u.role === 'buyer' ? `${u.orders_count || 0} orders claimed` : u.role === 'prime_admin' ? '👑 Superuser Administrator' : 'Platform Administrator'}
+          </td>
+          <td>
+            <div class="action-btn-group">
+              ${isPrimeAdminUser ? `
+                <span style="font-size:0.75rem;color:var(--amber-400);font-weight:600;padding:4px 6px;">
+                  👑👑 Prime Admin
+                </span>
+              ` : isAdminUser ? `
+                ${
+                  viewerIsPrime ? `
+                    ${isBlocked ? `
+                      <button class="btn-action success" onclick="toggleBlockUser(${u.id}, false, true)" title="Unblock this admin account">
+                        ✅ Unblock Admin
+                      </button>
+                    ` : `
+                      <button class="btn-action danger" onclick="toggleBlockUser(${u.id}, true, true)" title="Block this admin account">
+                        ⛔ Block Admin
+                      </button>
+                    `}
+                  ` : `
+                    <span style="font-size:0.75rem;color:var(--amber-400);font-weight:600;padding:4px 6px;">
+                      👑 Admin
+                    </span>
+                  `
+                }
+              ` : `
+                ${isBlocked ? `
+                  <button class="btn-action success" onclick="toggleBlockUser(${u.id}, false, false)" title="Unblock user account">
+                    ✅ Unblock
+                  </button>
+                ` : `
+                  <button class="btn-action danger" onclick="toggleBlockUser(${u.id}, true, false)" title="Block user from site access">
+                    ⛔ Block
+                  </button>
+                `}
+              `}
+              <button class="btn-action" onclick="showChangePasswordModal(${u.id}, '${escHtml(u.name)}')" title="Change password of this user or admin">
+                🔑 Change Pass
+              </button>
+              <button class="btn-action" onclick="switchPersona('${u.role}')" title="Test platform in this persona">
+                ⚡ Test
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" style="color:var(--red-400);text-align:center;">Failed: ${e.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red-400);text-align:center;">Failed: ${e.message}</td></tr>`;
+  }
+}
+
+// ──────────────────────────────────────────────
+// ADMIN — BLOCK / UNBLOCK USER
+// ──────────────────────────────────────────────
+async function toggleBlockUser(userId, blockStatus, isAdminTarget = false) {
+  const targetLabel = isAdminTarget ? 'admin account' : 'user';
+  const actionText = blockStatus ? 'block' : 'unblock';
+  if (!confirm(`Are you sure you want to ${actionText} this ${targetLabel}? ${blockStatus ? 'They will not be able to log in to the platform.' : 'They will regain normal platform access.'}`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/admin/users/${userId}/block`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        is_blocked: blockStatus,
+        requesting_role: STATE.isPrimeAdmin ? 'prime_admin' : 'admin'
+      }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    showToast(data.message || `Account ${actionText}ed!`, 'success');
+    loadAdminUsers();
+  } catch (e) {
+    showToast(e.message || `Failed to ${actionText} account.`, 'error');
+  }
+}
+
+// ──────────────────────────────────────────────
+// ADMIN — CHANGE USER PASSWORD UPON REQUEST
+// ──────────────────────────────────────────────
+function showChangePasswordModal(userId, userName) {
+  document.getElementById('cp-user-id').value = userId;
+  setText('cp-user-name', userName);
+  document.getElementById('cp-new-password').value = '';
+  show('change-password-modal');
+}
+
+function closeChangePasswordModal() {
+  hide('change-password-modal');
+}
+
+async function submitUserPasswordChange() {
+  const userId = val('cp-user-id');
+  const new_password = val('cp-new-password');
+
+  if (!new_password || new_password.length < 4) {
+    showToast('Password must be at least 4 characters long.', 'error');
+    return;
+  }
+
+  setLoading('btn-save-user-password', true, 'Saving...');
+
+  try {
+    const res = await fetch(`/api/admin/users/${userId}/password`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ new_password }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    closeChangePasswordModal();
+    showToast(data.message || 'User password updated successfully!', 'success');
+    loadAdminUsers();
+  } catch (e) {
+    showToast(e.message || 'Failed to update user password.', 'error');
+  } finally {
+    setLoading('btn-save-user-password', false, 'Save New Password');
+  }
+}
+
+// ──────────────────────────────────────────────
+// ADMIN — ADD N NUMBER OF ADMINS
+// ──────────────────────────────────────────────
+function showAddAdminModal() {
+  document.getElementById('new-admin-name').value = '';
+  document.getElementById('new-admin-phone').value = '';
+  document.getElementById('new-admin-password').value = '';
+  show('add-admin-modal');
+}
+
+function closeAddAdminModal() {
+  hide('add-admin-modal');
+}
+
+async function submitNewAdmin() {
+  const name = val('new-admin-name');
+  const phone = val('new-admin-phone');
+  const password = val('new-admin-password');
+
+  if (!name || phone.length < 10 || password.length < 4) {
+    showToast('Please provide a valid Admin Name, 10-digit Phone, and Password (min 4 chars).', 'error');
+    return;
+  }
+
+  setLoading('btn-create-admin', true, 'Creating Admin...');
+
+  try {
+    const res = await fetch('/api/admin/create-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, phone, password }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    closeAddAdminModal();
+    showToast(data.message || `Admin ${name} created successfully!`, 'success');
+    loadAdminUsers();
+    loadAdminDashboard();
+  } catch (e) {
+    showToast(e.message || 'Failed to create administrator account.', 'error');
+  } finally {
+    setLoading('btn-create-admin', false, 'Create Administrator');
+  }
+}
+
+// ──────────────────────────────────────────────
+// ADMIN — PLATFORM FEATURE CONTROLS & SETTINGS
+// ──────────────────────────────────────────────
+async function loadPlatformSettings() {
+  try {
+    const res = await fetch('/api/admin/settings');
+    const data = await res.json();
+    if (data.success && data.settings) {
+      const s = data.settings;
+      const aiInput = document.getElementById('setting-ai-scanner');
+      if (aiInput) aiInput.checked = s.ai_scanner_enabled !== false;
+
+      const scaleInput = document.getElementById('setting-scale-ocr');
+      if (scaleInput) scaleInput.checked = s.scale_ocr_enabled !== false;
+
+      const payoutInput = document.getElementById('setting-payout-preview');
+      if (payoutInput) payoutInput.checked = s.instant_payout_preview !== false;
+
+      const regInput = document.getElementById('setting-public-reg');
+      if (regInput) regInput.checked = s.public_registration !== false;
+
+      const maintInput = document.getElementById('setting-maintenance');
+      if (maintInput) maintInput.checked = !!s.maintenance_mode;
+
+      const commInput = document.getElementById('setting-commission');
+      if (commInput && s.commission_percent !== undefined) {
+        commInput.value = s.commission_percent;
+      }
+    }
+  } catch (e) {
+    console.warn('Could not load platform settings:', e.message);
+  }
+}
+
+async function savePlatformSetting(key, value) {
+  try {
+    const res = await fetch('/api/admin/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [key]: value }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    showToast(`Platform setting "${key}" updated successfully! ⚙️`, 'success');
+  } catch (e) {
+    showToast(e.message || 'Failed to update platform setting.', 'error');
+  }
+}
+
+async function saveMasterAdminPassword() {
+  const newPass = val('setting-master-password');
+  if (!newPass || newPass.length < 4) {
+    showToast('New Master Admin password must be at least 4 characters long.', 'error');
+    return;
+  }
+
+  setLoading('btn-save-master-pass', true, 'Saving...');
+
+  try {
+    const res = await fetch('/api/admin/change-master-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ new_password: newPass }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    document.getElementById('setting-master-password').value = '';
+    showToast(data.message || 'Master Admin password updated! 👑', 'success', 6000);
+  } catch (e) {
+    showToast(e.message || 'Failed to update Master Admin password.', 'error');
+  } finally {
+    setLoading('btn-save-master-pass', false, 'Update Pass');
   }
 }
 
@@ -1310,10 +1603,593 @@ async function seedDemoData() {
 }
 
 // ──────────────────────────────────────────────
+// AUTHENTICATION & ACCESS GATEWAY
+// ──────────────────────────────────────────────
+function switchAuthMode(mode) {
+  const tabs = ['register', 'login', 'admin'];
+  tabs.forEach(m => {
+    document.getElementById(`auth-tab-${m}`)?.classList.toggle('active', m === mode);
+    const form = document.getElementById(`form-${m === 'admin' ? 'admin-login' : m}`);
+    if (form) form.classList.toggle('hidden', m !== mode);
+  });
+
+  const notice = document.getElementById('auth-alert-text');
+  if (notice) {
+    if (mode === 'register') {
+      notice.textContent = 'New users must first register to gain access to the recycling platform.';
+    } else if (mode === 'login') {
+      notice.textContent = 'Enter your registered Name or Phone number and Password to enter.';
+    } else if (mode === 'admin') {
+      notice.textContent = '👑 Admin Portal: Enter the dedicated master password to manage network controls.';
+    }
+  }
+}
+
+async function handleRegister() {
+  const name = val('reg-name');
+  const phone = val('reg-phone');
+  const password = val('reg-password');
+  const role = val('reg-role') || 'seller';
+
+  if (!name) {
+    showToast('Please enter your full name.', 'error');
+    return;
+  }
+  if (!phone || phone.length < 10) {
+    showToast('Please enter a valid 10-digit mobile number.', 'error');
+    return;
+  }
+  if (!password || password.length < 4) {
+    showToast('Password must be at least 4 characters long.', 'error');
+    return;
+  }
+
+  setLoading('btn-submit-register', true, 'Register & Enter Platform');
+
+  try {
+    const pos = await getPositionPromise().catch(() => null);
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        phone,
+        password,
+        role,
+        lat: pos?.coords?.latitude || null,
+        lng: pos?.coords?.longitude || null,
+      }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    localStorage.setItem('recygo_user', JSON.stringify(data.user));
+    localStorage.removeItem('recygo_is_admin');
+    applyAuthenticatedUser(data.user, false);
+    showToast(`Registration successful! Welcome to RECYGO, ${data.user.name}! 🌿`, 'success');
+  } catch (e) {
+    showToast(e.message || 'Registration failed.', 'error');
+  } finally {
+    setLoading('btn-submit-register', false, '<span>🚀 Register & Enter Platform</span>');
+  }
+}
+
+async function handleLogin() {
+  const credential = val('login-cred');
+  const password = val('login-password');
+
+  if (!credential) {
+    showToast('Please enter your Name or Phone number.', 'error');
+    return;
+  }
+  if (!password) {
+    showToast('Please enter your password.', 'error');
+    return;
+  }
+
+  setLoading('btn-submit-login', true, 'Signing In...');
+
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credential, password }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    const isAdmin = data.user.role === 'admin';
+    localStorage.setItem('recygo_user', JSON.stringify(data.user));
+    if (isAdmin) {
+      localStorage.setItem('recygo_is_admin', 'true');
+    } else {
+      localStorage.removeItem('recygo_is_admin');
+    }
+
+    applyAuthenticatedUser(data.user, isAdmin);
+    showToast(`Welcome back, ${data.user.name}! 🌿`, 'success');
+  } catch (e) {
+    showToast(e.message || 'Login failed.', 'error');
+  } finally {
+    setLoading('btn-submit-login', false, '<span>🔓 Sign In to RECYGO</span>');
+  }
+}
+
+async function handleAdminLogin() {
+  const password = val('admin-pass-input');
+
+  if (!password) {
+    showToast('Please enter the Admin Secret Password.', 'error');
+    return;
+  }
+
+  setLoading('btn-submit-admin', true, 'Verifying...');
+
+  try {
+    const res = await fetch('/api/auth/admin-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    const isPrime = data.user.role === 'prime_admin';
+    localStorage.setItem('recygo_user', JSON.stringify(data.user));
+    localStorage.setItem('recygo_is_admin', 'true');
+    if (isPrime) localStorage.setItem('recygo_is_prime_admin', 'true');
+    else localStorage.removeItem('recygo_is_prime_admin');
+
+    applyAuthenticatedUser(data.user, true);
+    switchTab('admin');
+    const msg = isPrime
+      ? '👑 Prime Admin Network Unlocked: Full Superuser Controls Granted!'
+      : 'Admin Network Unlocked: Full Platform Control Granted 👑';
+    showToast(msg, 'success');
+  } catch (e) {
+    showToast(e.message || 'Admin authentication failed.', 'error');
+  } finally {
+    setLoading('btn-submit-admin', false, '<span>👑 Unlock Admin Controls</span>');
+  }
+}
+
+function quickFillAndLogin(type) {
+  if (type === 'seller') {
+    switchAuthMode('login');
+    const cred = document.getElementById('login-cred');
+    const pass = document.getElementById('login-password');
+    if (cred) cred.value = 'Rajesh Kumar';
+    if (pass) pass.value = 'password123';
+    handleLogin();
+  } else if (type === 'buyer') {
+    switchAuthMode('login');
+    const cred = document.getElementById('login-cred');
+    const pass = document.getElementById('login-password');
+    if (cred) cred.value = 'Mohammed Kabadi';
+    if (pass) pass.value = 'password123';
+    handleLogin();
+  }
+}
+
+function handleLogout() {
+  localStorage.removeItem('recygo_user');
+  localStorage.removeItem('recygo_is_admin');
+  localStorage.removeItem('recygo_is_prime_admin');
+  STATE.currentUser = null;
+  STATE.isAdmin = false;
+  STATE.isPrimeAdmin = false;
+  STATE.seller = null;
+  STATE.buyer = null;
+
+  hide('main-app');
+  show('auth-screen');
+  switchAuthMode('login');
+  showToast('You have been logged out. Please sign in or register to re-enter.', 'info');
+}
+
+function applyAuthenticatedUser(user, isAdmin = false) {
+  STATE.currentUser = user;
+  STATE.isAdmin = !!isAdmin || user.role === 'admin' || user.role === 'prime_admin';
+  STATE.isPrimeAdmin = user.role === 'prime_admin';
+
+  // Update navbar user pill
+  const nameEl = document.getElementById('nav-user-name');
+  if (nameEl) {
+    let roleIcon;
+    if (STATE.isPrimeAdmin) roleIcon = '👑👑 Prime Admin';
+    else if (user.role === 'admin' || STATE.isAdmin) roleIcon = '👑 Admin';
+    else if (user.role === 'buyer') roleIcon = '🏪 Buyer';
+    else roleIcon = '📦 Seller';
+    nameEl.textContent = `${user.name} (${roleIcon})`;
+  }
+
+  // Update admin lock indicator in navbar
+  const lockIcon = document.getElementById('admin-nav-lock');
+  if (lockIcon) {
+    lockIcon.textContent = STATE.isPrimeAdmin ? '👑👑' : STATE.isAdmin ? '👑' : '🔒';
+    lockIcon.title = STATE.isPrimeAdmin ? 'Prime Admin Mode Active' : STATE.isAdmin ? 'Admin Mode Active' : 'Admin Password Required';
+  }
+
+  // Update admin tab label badge for prime admin
+  const adminTabBtn = document.getElementById('tab-admin');
+  if (adminTabBtn && STATE.isPrimeAdmin) {
+    adminTabBtn.innerHTML = '<span>👑👑</span> Prime Admin';
+  } else if (adminTabBtn && STATE.isAdmin) {
+    adminTabBtn.innerHTML = '<span>👑</span> Admin <span id="admin-nav-lock" style="font-size:0.75rem;margin-left:2px;">👑</span>';
+  }
+
+  // Show/hide prime admin section in user directory (handled in loadAdminUsers)
+  // Show the navbar quick-action buttons for ALL logged-in users
+  const navInfo = document.getElementById('nav-user-info');
+  if (navInfo) navInfo.style.display = 'flex';
+
+  // Hide auth screen, reveal main application
+  hide('auth-screen');
+  show('main-app');
+
+  if (user.role === 'seller') {
+    STATE.seller = { id: user.id, name: user.name, phone: user.phone };
+    const nameInput = document.getElementById('seller-name');
+    const phoneInput = document.getElementById('seller-phone');
+    if (nameInput) nameInput.value = user.name;
+    if (phoneInput) phoneInput.value = user.phone;
+    hide('seller-reg-card');
+    show('scanner-card');
+    show('listing-card');
+    loadMyListings();
+    getLocation();
+    switchTab('seller');
+  } else if (user.role === 'buyer') {
+    STATE.buyer = { id: user.id, name: user.name, phone: user.phone };
+    STATE.buyerLat = user.lat || 12.9700;
+    STATE.buyerLng = user.lng || 77.5900;
+    const nameInput = document.getElementById('buyer-name');
+    const phoneInput = document.getElementById('buyer-phone');
+    if (nameInput) nameInput.value = user.name;
+    if (phoneInput) phoneInput.value = user.phone;
+    hide('buyer-reg-card');
+    show('map-controls-card');
+    show('nearby-card');
+    switchTab('buyer');
+  } else if (user.role === 'admin' || user.role === 'prime_admin' || STATE.isAdmin) {
+    switchTab('admin');
+  }
+}
+
+function initAuth() {
+  const savedUser = localStorage.getItem('recygo_user');
+  const savedAdmin = localStorage.getItem('recygo_is_admin') === 'true';
+  const savedPrime = localStorage.getItem('recygo_is_prime_admin') === 'true';
+
+  if (savedUser) {
+    try {
+      const user = JSON.parse(savedUser);
+      // Restore prime_admin role if saved flag exists
+      if (savedPrime && user.role !== 'prime_admin') user.role = 'prime_admin';
+      applyAuthenticatedUser(user, savedAdmin);
+      return;
+    } catch (e) {
+      localStorage.removeItem('recygo_user');
+    }
+  }
+
+  // Not authenticated: Show Auth Gateway
+  hide('main-app');
+  show('auth-screen');
+  switchAuthMode('register');
+}
+
+// ──────────────────────────────────────────────
+// ADMIN PASSWORD MODAL
+// ──────────────────────────────────────────────
+function closeAdminPasswordModal() {
+  hide('admin-password-modal');
+}
+
+async function verifyAdminPasswordFromModal() {
+  const password = val('modal-admin-password');
+  if (!password) {
+    showToast('Please enter the Admin Secret Password.', 'error');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/auth/admin-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    const isPrime = data.user.role === 'prime_admin';
+    STATE.isAdmin = true;
+    STATE.isPrimeAdmin = isPrime;
+    if (isPrime) {
+      STATE.currentUser = data.user;
+      localStorage.setItem('recygo_user', JSON.stringify(data.user));
+      localStorage.setItem('recygo_is_prime_admin', 'true');
+    }
+    localStorage.setItem('recygo_is_admin', 'true');
+    closeAdminPasswordModal();
+
+    const lockIcon = document.getElementById('admin-nav-lock');
+    if (lockIcon) lockIcon.textContent = isPrime ? '👑👑' : '👑';
+
+    switchTab('admin');
+    const msg = isPrime
+      ? '👑👑 Prime Admin Superuser Controls Granted!'
+      : 'Admin Network Unlocked: Full Platform Control Granted 👑';
+    showToast(msg, 'success');
+  } catch (e) {
+    showToast(e.message || 'Incorrect admin password.', 'error');
+  }
+}
+
+// ──────────────────────────────────────────────
+// HELP & SUPPORT CENTER
+// ──────────────────────────────────────────────
+function openHelpModal(subtab = 'guide') {
+  show('help-modal');
+
+  // Autofill report form name and phone for any logged-in role (seller, buyer, admin)
+  const user = STATE.currentUser;
+  if (user) {
+    const rName = document.getElementById('report-name');
+    const rPhone = document.getElementById('report-phone');
+    if (rName && !rName.value) rName.value = user.name || '';
+    if (rPhone && !rPhone.value) rPhone.value = user.phone || '';
+  }
+
+  switchHelpTab(subtab);
+}
+
+function closeHelpModal() {
+  hide('help-modal');
+}
+
+function switchHelpTab(tab) {
+  ['guide', 'contacts', 'report', 'rules'].forEach(t => {
+    document.getElementById(`help-tab-${t}`)?.classList.toggle('active', t === tab);
+    document.getElementById(`help-pane-${t}`)?.classList.toggle('hidden', t !== tab);
+  });
+}
+
+async function submitProblemReport() {
+  const name = val('report-name');
+  const phone = val('report-phone');
+  const issue_type = val('report-category');
+  const order_id = val('report-order-id');
+  const description = val('report-description');
+
+  if (!name || phone.length < 10 || !description) {
+    showToast('Please fill in your name, 10-digit phone, and problem description.', 'error');
+    return;
+  }
+
+  setLoading('btn-submit-report', true, 'Submitting...');
+
+  try {
+    const res = await fetch('/api/auth/report-problem', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, phone, issue_type, order_id, description }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    const successBox = document.getElementById('report-success-box');
+    if (successBox) {
+      show('report-success-box');
+      setText('report-ticket-title', `Support Ticket #${data.ticket_number} Created!`);
+      setText('report-ticket-msg', `Our administration and dispute resolution desk will review this and call ${phone} within 2 hours.`);
+    }
+
+    document.getElementById('report-description').value = '';
+    document.getElementById('report-order-id').value = '';
+
+    showToast(`Problem reported! Support Ticket #${data.ticket_number} logged with Admin.`, 'success', 6000);
+
+    if (STATE.isAdmin) {
+      loadAdminReports();
+    }
+  } catch (e) {
+    showToast(e.message || 'Failed to submit problem report.', 'error');
+  } finally {
+    setLoading('btn-submit-report', false, '<span>🚀 Submit Problem Report to Admin</span>');
+  }
+}
+
+// ──────────────────────────────────────────────
+// ADMIN — PROBLEM REPORTS TABLE
+// ──────────────────────────────────────────────
+async function loadAdminReports() {
+  const tbody = document.getElementById('admin-reports-table-body');
+  if (!tbody) return;
+  tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:20px;">Fetching problem reports & disputes...</td></tr>`;
+
+  try {
+    const res = await fetch('/api/admin/reports');
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    const reports = data.reports || [];
+    const badge = document.getElementById('admin-reports-count-badge');
+    const pendingCount = reports.filter(r => r.status === 'Open').length;
+    if (badge) badge.textContent = pendingCount;
+
+    if (!reports.length) {
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text-muted);">No problem reports filed yet. All platform operations normal! ✨</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = reports.map(r => `
+      <tr>
+        <td><strong>#${r.ticket_number || r.id}</strong></td>
+        <td>
+          <div style="font-weight:600;">${r.name}</div>
+          <a href="tel:${r.phone}" style="font-size:0.75rem;color:var(--green-400);text-decoration:none;">📞 ${r.phone}</a>
+        </td>
+        <td><span class="admin-badge ${r.status === 'Open' ? 'seller' : 'buyer'}">${r.issue_type}</span></td>
+        <td>${r.order_id ? `<span style="font-family:monospace;color:var(--amber-400);">Order #${r.order_id}</span>` : '—'}</td>
+        <td style="max-width:240px;font-size:0.8rem;color:var(--text-secondary);">${r.description}</td>
+        <td style="font-size:0.75rem;color:var(--text-muted);">${new Date(r.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+        <td>
+          <span class="status-pill ${r.status === 'Open' ? 'open' : 'resolved'}">${r.status}</span>
+        </td>
+        <td>
+          <div class="action-btn-group">
+            ${r.status === 'Open' ? `
+              <button class="btn-action success" onclick="resolveAdminReport(${r.id}, 'Resolved')" title="Mark as Resolved">
+                ✓ Resolve
+              </button>
+            ` : `
+              <button class="btn-action" onclick="resolveAdminReport(${r.id}, 'Open')" title="Reopen Ticket">
+                ↻ Reopen
+              </button>
+            `}
+            <a href="tel:${r.phone}" class="btn-action" title="Call User Directly">📞 Call</a>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--red-400);text-align:center;">Failed to load reports: ${e.message}</td></tr>`;
+  }
+}
+
+async function resolveAdminReport(id, newStatus = 'Resolved') {
+  try {
+    const res = await fetch(`/api/admin/reports/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    showToast(data.message || `Report status updated to ${newStatus}`, 'success');
+    loadAdminReports();
+    loadAdminDashboard();
+  } catch (e) {
+    showToast(e.message || 'Status update failed', 'error');
+  }
+}
+
+// ──────────────────────────────────────────────
+// SELF-SERVICE CHANGE PASSWORD (SELLER / BUYER / ADMIN)
+// ──────────────────────────────────────────────
+function openChangeMyPasswordModal() {
+  const isUserLoggedIn = !!STATE.currentUser;
+  const titleEl = document.getElementById('cmp-modal-title');
+  const instruction = document.getElementById('cmp-instruction');
+
+  if (isUserLoggedIn) {
+    if (titleEl) titleEl.textContent = 'Change Account Password';
+    const roleTitle = STATE.currentUser.role === 'admin' ? '👑 Admin' : STATE.currentUser.role === 'buyer' ? '🏪 Buyer' : '📦 Seller';
+    if (instruction) instruction.innerHTML = `Updating credentials for <strong id="cmp-user-label" style="color:var(--green-400);">${STATE.currentUser.name} (${roleTitle})</strong>.`;
+    hide('cmp-cred-group');
+    show('cmp-old-pass-group');
+  } else {
+    if (titleEl) titleEl.textContent = 'Reset / Recover Password';
+    if (instruction) instruction.innerHTML = `Enter your registered Name or 10-digit Phone Number to set a new password.`;
+    show('cmp-cred-group');
+    hide('cmp-old-pass-group');
+  }
+
+  const credInput = document.getElementById('cmp-cred');
+  if (credInput) {
+    const loginCred = val('login-cred');
+    if (loginCred) credInput.value = loginCred;
+  }
+
+  const oldPass = document.getElementById('cmp-old-password');
+  if (oldPass) oldPass.value = '';
+  document.getElementById('cmp-new-password').value = '';
+  document.getElementById('cmp-confirm-password').value = '';
+  show('change-my-password-modal');
+}
+
+function closeChangeMyPasswordModal() {
+  hide('change-my-password-modal');
+}
+
+async function submitChangeMyPassword() {
+  const isUserLoggedIn = !!STATE.currentUser;
+  const new_pass = val('cmp-new-password');
+  const confirm_pass = val('cmp-confirm-password');
+
+  if (!new_pass || new_pass.length < 4) {
+    showToast('New password must be at least 4 characters long.', 'error');
+    return;
+  }
+  if (new_pass !== confirm_pass) {
+    showToast('New password and confirmation do not match!', 'error');
+    return;
+  }
+
+  setLoading('btn-submit-cmp', true, 'Updating...');
+
+  try {
+    let res, data;
+    if (isUserLoggedIn) {
+      const old_pass = val('cmp-old-password');
+      if (!old_pass) {
+        showToast('Please enter your current password.', 'error');
+        setLoading('btn-submit-cmp', false, 'Update Password');
+        return;
+      }
+      res = await fetch('/api/auth/change-my-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: STATE.currentUser.id,
+          current_password: old_pass,
+          new_password: new_pass,
+        }),
+      });
+    } else {
+      const credential = val('cmp-cred');
+      if (!credential) {
+        showToast('Please enter your registered Name or 10-digit Phone Number.', 'error');
+        setLoading('btn-submit-cmp', false, 'Update Password');
+        return;
+      }
+      res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          credential,
+          new_password: new_pass,
+        }),
+      });
+    }
+
+    data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    closeChangeMyPasswordModal();
+    showToast(data.message || 'Password updated successfully! 🔑', 'success', 6000);
+  } catch (e) {
+    showToast(e.message || 'Failed to update password.', 'error');
+  } finally {
+    setLoading('btn-submit-cmp', false, 'Update Password');
+  }
+}
+
+// ──────────────────────────────────────────────
 // INIT
 // ──────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   loadCategories();
+  initAuth();
+
+  // Explicit click handlers for Help & Password buttons
+  document.getElementById('help-fab')?.addEventListener('click', () => openHelpModal('guide'));
+  document.getElementById('rate-fab')?.addEventListener('click', () => toggleRateCard());
+  document.getElementById('auth-help-btn')?.addEventListener('click', () => openHelpModal('guide'));
+  document.getElementById('auth-pass-btn')?.addEventListener('click', () => openChangeMyPasswordModal());
+
   // Close rate modal on overlay click
   document.getElementById('rate-modal')?.addEventListener('click', (e) => {
     if (e.target === document.getElementById('rate-modal')) toggleRateCard();
@@ -1322,14 +2198,32 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('add-category-modal')?.addEventListener('click', (e) => {
     if (e.target === document.getElementById('add-category-modal')) hideAddCategoryModal();
   });
+  // Close help modal on overlay click
+  document.getElementById('help-modal')?.addEventListener('click', (e) => {
+    if (e.target === document.getElementById('help-modal')) closeHelpModal();
+  });
+  // Close admin password modal on overlay click
+  document.getElementById('admin-password-modal')?.addEventListener('click', (e) => {
+    if (e.target === document.getElementById('admin-password-modal')) closeAdminPasswordModal();
+  });
+  // Close add admin modal on overlay click
+  document.getElementById('add-admin-modal')?.addEventListener('click', (e) => {
+    if (e.target === document.getElementById('add-admin-modal')) closeAddAdminModal();
+  });
+  // Close change password modal on overlay click
+  document.getElementById('change-password-modal')?.addEventListener('click', (e) => {
+    if (e.target === document.getElementById('change-password-modal')) closeChangePasswordModal();
+  });
+  // Close change my password modal on overlay click
+  document.getElementById('change-my-password-modal')?.addEventListener('click', (e) => {
+    if (e.target === document.getElementById('change-my-password-modal')) closeChangeMyPasswordModal();
+  });
 
   // Check URL hash for direct tab navigation e.g. #admin, #buyer
   const hash = (window.location.hash || '').replace('#', '');
   if (['seller', 'buyer', 'handover', 'admin'].includes(hash)) {
-    switchTab(hash);
-    const personaSel = document.getElementById('persona-switcher');
-    if (personaSel && (hash === 'admin' || hash === 'seller' || hash === 'buyer')) {
-      personaSel.value = hash;
+    if (STATE.currentUser) {
+      switchTab(hash);
     }
   }
 });
