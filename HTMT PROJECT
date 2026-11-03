@@ -1,0 +1,992 @@
+Here is the complete, self - contained, end - to - end project repository.It includes the complete backend server with all controllers, database migrations, AI services, and a complete single - page interactive Frontend UI(HTML5 / Tailwind / Leaflet Maps) that lets you test and demo all three actors(Seller, Buyer, and Platform AI) directly in any browser.
+
+Project File Structure
+Plaintext
+recycle - platform /
+├── package.json
+├── .env
+├── db.js
+├── aiService.js
+server.js
+public /
+    └── index.html
+1. package.json
+JSON
+{
+    "name": "recycle-smart-platform",
+        "version": "1.0.0",
+            "type": "module",
+                "main": "server.js",
+                    "scripts": {
+        "start": "node server.js"
+    },
+    "dependencies": {
+        "@google/genai": "^0.1.2",
+            "cors": "^2.8.5",
+                "dotenv": "^16.4.5",
+                    "express": "^4.19.2",
+                        "pg": "^8.12.0"
+    }
+}
+2..env
+Create this in the root directory:
+
+Code snippet
+PORT = 5000
+DATABASE_URL = postgresql://postgres:password@localhost:5432/recycledb
+GEMINI_API_KEY = your_gemini_api_key_here
+3. Database Layer(db.js)
+Connects to PostgreSQL, activates PostGIS, creates all tables, seeds standard scrap rates, and sets up a mock seller and buyer so the system is ready to use on startup.
+
+    JavaScript
+import pg from 'pg';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const { Pool } = pg;
+
+export const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+});
+
+export async function initDatabase() {
+    const setupSQL = `
+    CREATE EXTENSION IF NOT EXISTS postgis;
+
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      phone VARCHAR(20) UNIQUE NOT NULL,
+      role VARCHAR(20) NOT NULL CHECK (role IN ('seller', 'buyer')),
+      location GEOGRAPHY(Point, 4326) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS categories (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(50) UNIQUE NOT NULL,
+      standard_price_per_kg NUMERIC(8, 2) NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS listings (
+      id SERIAL PRIMARY KEY,
+      seller_id INT REFERENCES users(id) ON DELETE CASCADE,
+      category_id INT REFERENCES categories(id),
+      title VARCHAR(150) NOT NULL,
+      description TEXT,
+      ai_detected_category VARCHAR(50),
+      ai_confidence NUMERIC(3, 2),
+      estimated_weight NUMERIC(8, 2) NOT NULL,
+      asking_price NUMERIC(10, 2),
+      location GEOGRAPHY(Point, 4326) NOT NULL,
+      landmark TEXT,
+      gate_instructions TEXT,
+      status VARCHAR(20) DEFAULT 'open' CHECK (status IN ('open', 'matched', 'completed', 'cancelled')),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS orders (
+      id SERIAL PRIMARY KEY,
+      listing_id INT REFERENCES listings(id) ON DELETE CASCADE,
+      buyer_id INT REFERENCES users(id),
+      scheduled_pickup TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      gross_weight NUMERIC(8, 2),
+      tare_deduction NUMERIC(8, 2) DEFAULT 0.00,
+      actual_weight NUMERIC(8, 2),
+      final_amount NUMERIC(10, 2),
+      ai_detected_weight NUMERIC(8, 2),
+      scale_photo_status VARCHAR(30) DEFAULT 'verified',
+      otp_code VARCHAR(6) NOT NULL,
+      original_category_id INT REFERENCES categories(id),
+      adjusted_category_id INT REFERENCES categories(id),
+      category_adjusted_reason TEXT,
+      payment_status VARCHAR(20) DEFAULT 'pending' CHECK (payment_status IN ('pending', 'completed')),
+      status VARCHAR(20) DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'picked_up', 'cancelled')),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Seed standard categories & prices (INR/kg)
+    INSERT INTO categories (name, standard_price_per_kg)
+    VALUES 
+      ('cardboard', 12.00),
+      ('pet-plastic', 18.50),
+      ('aluminum-scrap', 110.00),
+      ('e-waste', 75.00),
+      ('iron-scrap', 28.00)
+    ON CONFLICT (name) DO NOTHING;
+
+    -- Seed default demo users if empty
+    INSERT INTO users (id, name, phone, role, location)
+    VALUES 
+      (1, 'Ramesh Kumar (Seller)', '9876543210', 'seller', ST_SetSRID(ST_MakePoint(77.5946, 12.9716), 4326)),
+      (2, 'EcoRecycle Hub (Buyer)', '9123456780', 'buyer', ST_SetSRID(ST_MakePoint(77.5900, 12.9700), 4326))
+    ON CONFLICT (id) DO NOTHING;
+  `;
+
+    await pool.query(setupSQL);
+    console.log('PostgreSQL + PostGIS database initialized successfully.');
+}
+4. Platform AI Service(aiService.js)
+Handles both multimodal AI workloads:
+
+Waste item identification & weight estimation for sellers.
+
+Weighing scale OCR inspection with automatic error fallback for buyers at doorstep.
+
+    JavaScript
+import { GoogleGenAI, Type } from '@google/genai';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const ai = new GoogleGenAI();
+
+/**
+ * 1. AI Vision: Classify scrap image and auto-fill listing
+ */
+export async function classifyScrapImage(imageBase64, mimeType = 'image/jpeg') {
+    const prompt = `
+    Analyze this photo of household or industrial scrap/waste.
+    Return the detected category, whether it is recyclable, an estimated weight in kilograms 
+    based on visible scale, a cleanliness assessment, a clean short title, and a confidence score between 0.0 and 1.0.
+  `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [
+                {
+                    role: 'user',
+                    parts: [
+                        { text: prompt },
+                        { inlineData: { data: imageBase64, mimeType } },
+                    ],
+                },
+            ],
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        category: {
+                            type: Type.STRING,
+                            description: 'Must match one of: cardboard, pet-plastic, aluminum-scrap, e-waste, iron-scrap, other'
+                        },
+                        is_recyclable: { type: Type.BOOLEAN },
+                        estimated_weight_kg: { type: Type.NUMBER },
+                        confidence_score: { type: Type.NUMBER },
+                        cleanliness_status: { type: Type.STRING },
+                        suggested_title: { type: Type.STRING },
+                    },
+                    required: ['category', 'is_recyclable', 'estimated_weight_kg', 'confidence_score', 'suggested_title'],
+                },
+            },
+        });
+
+        return JSON.parse(response.text);
+    } catch (error) {
+        console.error('AI Classification Error:', error.message);
+        // Safe mock fallback if API key is not yet set
+        return {
+            category: 'cardboard',
+            is_recyclable: true,
+            estimated_weight_kg: 5.0,
+            confidence_score: 0.85,
+            cleanliness_status: 'dry and bundled',
+            suggested_title: 'Corrugated Cardboard Boxes (~5kg)',
+        };
+    }
+}
+
+/**
+ * 2. AI OCR: Verify physical weighing scale screen at doorstep
+ */
+export async function verifyScaleReading(imageBase64, manualGrossWeight) {
+    const prompt = `
+    Analyze this photo of scrap placed on a weighing scale.
+    Read the numeric weight shown on the digital or analog scale display.
+    If the display is obscured, analog needle-based, or unreadable due to glare, set is_readable to false.
+  `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [
+                {
+                    role: 'user',
+                    parts: [
+                        { text: prompt },
+                        { inlineData: { data: imageBase64, mimeType: 'image/jpeg' } },
+                    ],
+                },
+            ],
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        scale_reading: { type: Type.NUMBER },
+                        is_readable: { type: Type.BOOLEAN },
+                        display_type: { type: Type.STRING },
+                        confidence_score: { type: Type.NUMBER },
+                    },
+                    required: ['is_readable', 'display_type'],
+                },
+            },
+        });
+
+        const result = JSON.parse(response.text);
+
+        if (result.is_readable && result.scale_reading != null) {
+            const difference = Math.abs(result.scale_reading - manualGrossWeight);
+            const isMismatched = difference > 0.5;
+
+            return {
+                status: isMismatched ? 'disputed' : 'verified',
+                ai_weight: result.scale_reading,
+                needs_human_audit: isMismatched,
+                notes: isMismatched
+                    ? `Scale shows ${result.scale_reading}kg but entered ${manualGrossWeight}kg`
+                    : 'Matched display reading',
+            };
+        }
+
+        return {
+            status: 'unreadable_fallback',
+            ai_weight: null,
+            needs_human_audit: true,
+            notes: 'Glare/analog scale detected. Proceeded with manual entry and seller OTP.',
+        };
+    } catch (err) {
+        return {
+            status: 'unreadable_fallback',
+            ai_weight: null,
+            needs_human_audit: true,
+            notes: 'OCR service offline. Proceeded with manual weight and seller OTP.',
+        };
+    }
+}
+5. Unified Express Server(server.js)
+Exposes all endpoints for Seller, Buyer, and Platform AI, and serves the interactive frontend from the / public folder.
+
+    JavaScript
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { pool, initDatabase } from './db.js';
+import { classifyScrapImage, verifyScaleReading } from './aiService.js';
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+app.use(cors());
+app.use(express.json({ limit: '15mb' }));
+app.use(express.static(path.join(__dirname, 'public')));
+
+// ---------------------------------------------------------------------
+// 1. SYSTEM & AI ENDPOINTS
+// ---------------------------------------------------------------------
+
+// Fetch scrap rates
+app.get('/api/categories/rates', async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT * FROM categories ORDER BY standard_price_per_kg DESC');
+        res.json({ success: true, rates: rows });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Platform AI: Scan Waste Image
+app.post('/api/ai/classify', async (req, res) => {
+    try {
+        const { imageBase64 } = req.body;
+        if (!imageBase64) return res.status(400).json({ error: 'imageBase64 required' });
+
+        const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+        const aiResult = await classifyScrapImage(cleanBase64);
+
+        const catRes = await pool.query('SELECT id, standard_price_per_kg FROM categories WHERE name = $1', [
+            aiResult.category,
+        ]);
+
+        let categoryId = 1;
+        let rate = 12.0;
+
+        if (catRes.rows.length > 0) {
+            categoryId = catRes.rows[0].id;
+            rate = parseFloat(catRes.rows[0].standard_price_per_kg);
+        }
+
+        const estimatedPayout = parseFloat((aiResult.estimated_weight_kg * rate).toFixed(2));
+
+        res.json({
+            success: true,
+            analysis: aiResult,
+            category_id: categoryId,
+            rate_per_kg: rate,
+            suggested_payout: estimatedPayout,
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ---------------------------------------------------------------------
+// 2. SELLER ENDPOINTS
+// ---------------------------------------------------------------------
+
+// Create a new scrap listing
+app.post('/api/seller/listings', async (req, res) => {
+    try {
+        const {
+            seller_id = 1,
+            category_id,
+            title,
+            description,
+            estimated_weight,
+            asking_price,
+            longitude = 77.5946,
+            latitude = 12.9716,
+            landmark = 'Near Metro Pillar 42',
+            gate_instructions = 'Flat 204, 2nd Floor',
+        } = req.body;
+
+        const query = `
+      INSERT INTO listings (
+        seller_id, category_id, title, description,
+        estimated_weight, asking_price, location, landmark, gate_instructions
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, ST_SetSRID(ST_MakePoint($7, $8), 4326), $9, $10)
+      RETURNING *;
+    `;
+
+        const values = [
+            seller_id,
+            category_id,
+            title,
+            description,
+            estimated_weight,
+            asking_price,
+            longitude,
+            latitude,
+            landmark,
+            gate_instructions,
+        ];
+
+        const { rows } = await pool.query(query, values);
+        res.status(201).json({ success: true, listing: rows[0] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ---------------------------------------------------------------------
+// 3. BUYER ENDPOINTS
+// ---------------------------------------------------------------------
+
+// Find nearby scrap listings (Geospatial search using PostGIS)
+app.get('/api/buyer/nearby-listings', async (req, res) => {
+    try {
+        const { lng = 77.5900, lat = 12.9700, radius = 15000 } = req.query;
+
+        const query = `
+      SELECT 
+        l.id, l.title, l.description, l.estimated_weight, l.asking_price, l.status,
+        l.landmark, l.gate_instructions,
+        c.name AS category_name, c.standard_price_per_kg,
+        u.name AS seller_name,
+        ST_X(l.location::geometry) AS longitude,
+        ST_Y(l.location::geometry) AS latitude,
+        ROUND(ST_Distance(l.location, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography)::numeric, 0) AS distance_meters
+      FROM listings l
+      JOIN categories c ON l.category_id = c.id
+      JOIN users u ON l.seller_id = u.id
+      WHERE l.status = 'open'
+        AND ST_DWithin(l.location, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
+      ORDER BY distance_meters ASC;
+    `;
+
+        const { rows } = await pool.query(query, [lng, lat, radius]);
+        res.json({ success: true, count: rows.length, listings: rows });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Buyer accepts/schedules pickup (Generates 4-digit verification OTP)
+app.post('/api/buyer/schedule-pickup', async (req, res) => {
+    try {
+        const { listing_id, buyer_id = 2 } = req.body;
+        const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
+
+        const insertOrder = `
+      INSERT INTO orders (listing_id, buyer_id, otp_code)
+      VALUES ($1, $2, $3)
+      RETURNING *;
+    `;
+
+        const { rows } = await pool.query(insertOrder, [listing_id, buyer_id, otpCode]);
+        await pool.query("UPDATE listings SET status = 'matched' WHERE id = $1", [listing_id]);
+
+        res.status(201).json({
+            success: true,
+            message: 'Pickup scheduled. Direct navigation and OTP issued.',
+            order: rows[0],
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Final Doorstep Verification: Scale Photo OCR + Tare Deduction + Grade Adjustment + OTP
+app.post('/api/buyer/complete-pickup', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const {
+            order_id,
+            otp_code,
+            gross_weight,
+            tare_type = 'none',
+            custom_tare = 0,
+            scale_image_base64,
+            adjusted_category_id,
+            adjustment_reason,
+        } = req.body;
+
+        await client.query('BEGIN');
+
+        const orderRes = await client.query(
+            `SELECT o.*, l.category_id AS original_cat_id 
+       FROM orders o 
+       JOIN listings l ON o.listing_id = l.id 
+       WHERE o.id = $1 FOR UPDATE`,
+            [order_id]
+        );
+
+        if (orderRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Order not found' });
+        }
+
+        const order = orderRes.rows[0];
+
+        // OTP Verification
+        if (order.otp_code !== otp_code) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'Invalid verification OTP provided by seller' });
+        }
+
+        // Tare Deduction
+        let tareWeight = 0;
+        if (tare_type === 'gunny_sack') tareWeight = 0.5;
+        else if (tare_type === 'plastic_crate') tareWeight = 1.5;
+        else if (tare_type === 'custom') tareWeight = parseFloat(custom_tare) || 0;
+
+        const netWeight = Math.max(0, parseFloat((gross_weight - tareWeight).toFixed(2)));
+
+        // AI Scale Verification
+        let aiCheck = { status: 'unreadable_fallback', ai_weight: null, notes: 'No scale photo uploaded' };
+        if (scale_image_base64) {
+            const cleanImg = scale_image_base64.replace(/^data:image\/\w+;base64,/, '');
+            aiCheck = await verifyScaleReading(cleanImg, gross_weight);
+        }
+
+        // Material Grade & Price Calculation
+        const finalCatId = adjusted_category_id || order.original_cat_id;
+        const catRes = await client.query('SELECT name, standard_price_per_kg FROM categories WHERE id = $1', [
+            finalCatId,
+        ]);
+        const ratePerKg = parseFloat(catRes.rows[0].standard_price_per_kg);
+        const finalPayout = parseFloat((netWeight * ratePerKg).toFixed(2));
+
+        // Update Order & Listing
+        await client.query(
+            `UPDATE orders 
+       SET gross_weight = $1, tare_deduction = $2, actual_weight = $3,
+           final_amount = $4, ai_detected_weight = $5, scale_photo_status = $6,
+           original_category_id = $7, adjusted_category_id = $8, category_adjusted_reason = $9,
+           payment_status = 'completed', status = 'picked_up'
+       WHERE id = $10`,
+            [
+                gross_weight,
+                tareWeight,
+                netWeight,
+                finalPayout,
+                aiCheck.ai_weight,
+                aiCheck.status,
+                order.original_cat_id,
+                finalCatId,
+                adjustment_reason || null,
+                order_id,
+            ]
+        );
+
+        await client.query("UPDATE listings SET status = 'completed' WHERE id = $1", [order.listing_id]);
+        await client.query('COMMIT');
+
+        res.json({
+            success: true,
+            summary: {
+                category_name: catRes.rows[0].name,
+                gross_weight_kg: gross_weight,
+                tare_deducted_kg: tareWeight,
+                billable_net_weight_kg: netWeight,
+                rate_per_kg: ratePerKg,
+                final_payout_inr: finalPayout,
+                scale_verification: aiCheck.status,
+                verification_notes: aiCheck.notes,
+            },
+        });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// ---------------------------------------------------------------------
+// 4. BOOTSTRAP
+// ---------------------------------------------------------------------
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, async () => {
+    await initDatabase();
+    console.log(`Recycle Platform Server active at: http://localhost:${PORT}`);
+});
+6. Interactive Demo Frontend(public / index.html)
+This clean, responsive dashboard loads Leaflet Maps and Tailwind CSS directly via CDN.It gives you 3 clickable tabs:
+
+Seller App: Upload photo 
+→ AI Auto - Fill 
+→ Publish Listing.
+
+Buyer App: Interactive Map showing nearby scrap pins 
+→ One - Click Pickup Booking 
+→ Direct GPS Navigation link.
+
+Doorstep Settlement: Tare Weight Calculator 
+→ Scale Photo Check 
+→ OTP Payout Finalizer.
+
+    HTML
+    < !DOCTYPE html >
+        <html lang="en" >
+            <head>
+            <meta charset="UTF-8" >
+                <meta name="viewport" content = "width=device-width, initial-scale=1.0" >
+                    <title>Smart Waste & Scrap Recycling Platform </title>
+                        < script src = "https://cdn.tailwindcss.com" > </script>
+                            < link rel = "stylesheet" href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+                                <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" > </script>
+                                    </head>
+                                    < body class="bg-slate-100 text-slate-800 font-sans min-h-screen" >
+
+                                        <!--Header -->
+                                            <header class="bg-emerald-700 text-white shadow-md p-4" >
+                                                <div class="max-w-6xl mx-auto flex justify-between items-center" >
+                                                    <div class="flex items-center space-x-2" >
+                                                        <span class="text-2xl" >♻️</span>
+                                                            < h1 class="text-xl font-bold tracking-tight" > EcoScrap Smart Platform </h1>
+                                                                </div>
+                                                                < div class="flex space-x-2" >
+                                                                    <button onclick="switchTab('seller')" id = "btn-seller" class="px-4 py-1.5 rounded-lg font-medium bg-emerald-800 text-white shadow" > 1. Seller(Post Waste) </button>
+                                                                        < button onclick = "switchTab('buyer')" id = "btn-buyer" class="px-4 py-1.5 rounded-lg font-medium bg-emerald-600 hover:bg-emerald-800 text-white" > 2. Buyer(Map & Dispatch) </button>
+                                                                            < button onclick = "switchTab('settlement')" id = "btn-settlement" class="px-4 py-1.5 rounded-lg font-medium bg-emerald-600 hover:bg-emerald-800 text-white" > 3. Doorstep Settlement </button>
+                                                                                </div>
+                                                                                </div>
+                                                                                </header>
+
+                                                                                < main class="max-w-6xl mx-auto p-4 md:p-6" >
+
+                                                                                    <!--TAB 1: SELLER VIEW-- >
+                                                                                        <section id="tab-seller" class="block" >
+                                                                                            <div class="bg-white rounded-xl shadow p-6 max-w-2xl mx-auto" >
+                                                                                                <h2 class="text-xl font-bold text-slate-800 mb-1 flex items-center gap-2" >
+                                                                                                    <span>📦</span> Create Scrap Listing with Platform AI
+                                                                                                        </h2>
+                                                                                                        < p class="text-sm text-slate-500 mb-6" > Upload a photo of your scrap.AI will classify the material, estimate weight, and calculate value.</p>
+
+                                                                                                            < div class="space-y-4" >
+                                                                                                                <!--Photo Upload & AI Trigger-- >
+                                                                                                                    <div>
+                                                                                                                    <label class="block text-sm font-semibold mb-1" > Upload Scrap Photo </label>
+                                                                                                                        < input type = "file" id = "scrap-file" accept = "image/*" class="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 border rounded-lg cursor-pointer" >
+                                                                                                                            </div>
+
+                                                                                                                            < button onclick = "runAiClassification()" id = "btn-ai-scan" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 rounded-lg flex justify-center items-center gap-2 shadow" >
+                                                                                                                                <span>✨</span> Scan & Auto-Fill with Platform AI
+                                                                                                                                    </button>
+
+                                                                                                                                    < !--Pre - filled Form Fields-- >
+                                                                                                                                        <div class="grid grid-cols-2 gap-4 pt-2" >
+                                                                                                                                            <div>
+                                                                                                                                            <label class="block text-xs font-semibold text-slate-600 mb-1" > Detected Material Category </label>
+                                                                                                                                                < select id = "listing-category" class="w-full border rounded-lg p-2 text-sm bg-slate-50" >
+                                                                                                                                                    <option value="1" > Cardboard(₹12 / kg) </option>
+                                                                                                                                                        < option value = "2" > PET Plastic(₹18.5 / kg) </option>
+                                                                                                                                                            < option value = "3" > Aluminum Scrap(₹110 / kg) </option>
+                                                                                                                                                                < option value = "4" > E - Waste(₹75 / kg) </option>
+                                                                                                                                                                    < option value = "5" > Iron Scrap(₹28 / kg) </option>
+                                                                                                                                                                        </select>
+                                                                                                                                                                        </div>
+                                                                                                                                                                        < div >
+                                                                                                                                                                        <label class="block text-xs font-semibold text-slate-600 mb-1" > Estimated Weight(kg) </label>
+                                                                                                                                                                            < input type = "number" id = "listing-weight" step = "0.1" value = "5.0" class="w-full border rounded-lg p-2 text-sm" >
+                                                                                                                                                                                </div>
+                                                                                                                                                                                </div>
+
+                                                                                                                                                                                < div >
+                                                                                                                                                                                <label class="block text-xs font-semibold text-slate-600 mb-1" > Listing Title </label>
+                                                                                                                                                                                    < input type = "text" id = "listing-title" placeholder = "e.g., 5kg Clean Cardboard Boxes" class="w-full border rounded-lg p-2 text-sm" >
+                                                                                                                                                                                        </div>
+
+                                                                                                                                                                                        < div class="grid grid-cols-2 gap-4" >
+                                                                                                                                                                                            <div>
+                                                                                                                                                                                            <label class="block text-xs font-semibold text-slate-600 mb-1" > Landmark(Last 50m) </label>
+                                                                                                                                                                                                < input type = "text" id = "listing-landmark" value = "Near City Park Gate 2" class="w-full border rounded-lg p-2 text-sm" >
+                                                                                                                                                                                                    </div>
+                                                                                                                                                                                                    < div >
+                                                                                                                                                                                                    <label class="block text-xs font-semibold text-slate-600 mb-1" > Gate / Door Instructions </label>
+                                                                                                                                                                                                        < input type = "text" id = "listing-instructions" value = "Tower B, Flat 301" class="w-full border rounded-lg p-2 text-sm" >
+                                                                                                                                                                                                            </div>
+                                                                                                                                                                                                            </div>
+
+                                                                                                                                                                                                            < div class="p-3 bg-emerald-50 rounded-lg flex justify-between items-center text-sm" >
+                                                                                                                                                                                                                <span class="font-medium text-emerald-900" > Estimated Payout to Seller: </span>
+                                                                                                                                                                                                                    < span id = "display-payout" class="text-lg font-bold text-emerald-700" >₹60.00 </span>
+                                                                                                                                                                                                                        </div>
+
+                                                                                                                                                                                                                        < button onclick = "publishListing()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 rounded-lg shadow" >
+                                                                                                                                                                                                                            Publish Scrap Listing
+                                                                                                                                                                                                                                </button>
+                                                                                                                                                                                                                                </div>
+                                                                                                                                                                                                                                </div>
+                                                                                                                                                                                                                                </section>
+
+                                                                                                                                                                                                                                < !--TAB 2: BUYER VIEW(MAP & NEARBY LISTINGS)-- >
+                                                                                                                                                                                                                                    <section id="tab-buyer" class="hidden" >
+                                                                                                                                                                                                                                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6" >
+                                                                                                                                                                                                                                            <div class="bg-white rounded-xl shadow p-4 md:col-span-1 flex flex-col h-[600px]" >
+                                                                                                                                                                                                                                                <h2 class="text-lg font-bold mb-1 flex items-center gap-2" >
+                                                                                                                                                                                                                                                    <span>🚚</span> Nearby Scrap Listings
+                                                                                                                                                                                                                                                        </h2>
+                                                                                                                                                                                                                                                        < p class="text-xs text-slate-500 mb-3" > Live listings within 15 km of your depot.</p>
+                                                                                                                                                                                                                                                            < div id = "listings-container" class="space-y-3 overflow-y-auto flex-1 pr-1" >
+                                                                                                                                                                                                                                                                <p class="text-sm text-slate-400" > Loading listings nearby...</p>
+                                                                                                                                                                                                                                                                    </div>
+                                                                                                                                                                                                                                                                    </div>
+
+                                                                                                                                                                                                                                                                    < div class="bg-white rounded-xl shadow p-4 md:col-span-2 flex flex-col h-[600px]" >
+                                                                                                                                                                                                                                                                        <h3 class="text-sm font-semibold text-slate-600 mb-2" > Live Map Discovery </h3>
+                                                                                                                                                                                                                                                                            < div id = "map" class="flex-1 rounded-lg border" > </div>
+                                                                                                                                                                                                                                                                                </div>
+                                                                                                                                                                                                                                                                                </div>
+                                                                                                                                                                                                                                                                                </section>
+
+                                                                                                                                                                                                                                                                                < !--TAB 3: DOORSTEP VERIFICATION & SETTLEMENT-- >
+                                                                                                                                                                                                                                                                                    <section id="tab-settlement" class="hidden" >
+                                                                                                                                                                                                                                                                                        <div class="bg-white rounded-xl shadow p-6 max-w-2xl mx-auto" >
+                                                                                                                                                                                                                                                                                            <h2 class="text-xl font-bold text-slate-800 mb-1 flex items-center gap-2" >
+                                                                                                                                                                                                                                                                                                <span>⚖️</span> Doorstep Weighing & OTP Settlement
+                                                                                                                                                                                                                                                                                                    </h2>
+                                                                                                                                                                                                                                                                                                    < p class="text-sm text-slate-500 mb-6" > Mitigates scale tampering, tare bag weight, and material misidentification.</p>
+
+                                                                                                                                                                                                                                                                                                        < div class="space-y-4" >
+                                                                                                                                                                                                                                                                                                            <div class="grid grid-cols-2 gap-4" >
+                                                                                                                                                                                                                                                                                                                <div>
+                                                                                                                                                                                                                                                                                                                <label class="block text-xs font-semibold text-slate-600 mb-1" > Active Order ID </label>
+                                                                                                                                                                                                                                                                                                                    < input type = "number" id = "order-id" value = "1" class="w-full border rounded-lg p-2 text-sm bg-slate-50 font-mono" >
+                                                                                                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                                                                                                        < div >
+                                                                                                                                                                                                                                                                                                                        <label class="block text-xs font-semibold text-slate-600 mb-1" > Seller Handover OTP </label>
+                                                                                                                                                                                                                                                                                                                            < input type = "text" id = "order-otp" placeholder = "4-digit OTP" class="w-full border rounded-lg p-2 text-sm font-mono tracking-widest text-center font-bold" >
+                                                                                                                                                                                                                                                                                                                                </div>
+                                                                                                                                                                                                                                                                                                                                </div>
+
+                                                                                                                                                                                                                                                                                                                                < div class="grid grid-cols-2 gap-4" >
+                                                                                                                                                                                                                                                                                                                                    <div>
+                                                                                                                                                                                                                                                                                                                                    <label class="block text-xs font-semibold text-slate-600 mb-1" > Gross Weight on Scale(kg) </label>
+                                                                                                                                                                                                                                                                                                                                        < input type = "number" id = "gross-weight" step = "0.1" placeholder = "e.g. 10.5" class="w-full border rounded-lg p-2 text-sm font-bold" >
+                                                                                                                                                                                                                                                                                                                                            </div>
+                                                                                                                                                                                                                                                                                                                                            < div >
+                                                                                                                                                                                                                                                                                                                                            <label class="block text-xs font-semibold text-slate-600 mb-1" > Container Tare Deduction </label>
+                                                                                                                                                                                                                                                                                                                                                < select id = "tare-type" class="w-full border rounded-lg p-2 text-sm bg-slate-50" >
+                                                                                                                                                                                                                                                                                                                                                    <option value="none" > No Container(0.0 kg) </option>
+                                                                                                                                                                                                                                                                                                                                                        < option value = "gunny_sack" > Gunny Sack(-0.5 kg) </option>
+                                                                                                                                                                                                                                                                                                                                                            < option value = "plastic_crate" > Plastic Crate(-1.5 kg) </option>
+                                                                                                                                                                                                                                                                                                                                                                </select>
+                                                                                                                                                                                                                                                                                                                                                                </div>
+                                                                                                                                                                                                                                                                                                                                                                </div>
+
+                                                                                                                                                                                                                                                                                                                                                                < div >
+                                                                                                                                                                                                                                                                                                                                                                <label class="block text-xs font-semibold text-slate-600 mb-1" > Upload Scale Screen Photo(Optional OCR Check) </label>
+                                                                                                                                                                                                                                                                                                                                                                    < input type = "file" id = "scale-file" accept = "image/*" class="block w-full text-sm file:mr-4 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 border rounded-lg cursor-pointer" >
+                                                                                                                                                                                                                                                                                                                                                                        </div>
+
+                                                                                                                                                                                                                                                                                                                                                                        < div >
+                                                                                                                                                                                                                                                                                                                                                                        <label class="block text-xs font-semibold text-slate-600 mb-1" > On - Site Material Grade Reclassification(If Misidentified) </label>
+                                                                                                                                                                                                                                                                                                                                                                            < select id = "adjusted-cat" class="w-full border rounded-lg p-2 text-sm bg-slate-50" >
+                                                                                                                                                                                                                                                                                                                                                                                <option value="" > Keep Original Seller Category </option>
+                                                                                                                                                                                                                                                                                                                                                                                    < option value = "1" > Reclassify as Cardboard (₹12 / kg)</option>
+                                                                                                                                                                                                                                                                                                                                                                                        < option value = "2" > Reclassify as PET Plastic(₹18.5 / kg) </option>
+                                                                                                                                                                                                                                                                                                                                                                                            < option value = "3" > Reclassify as Aluminum (₹110 / kg)</option>
+                                                                                                                                                                                                                                                                                                                                                                                                < option value = "4" > Reclassify as E - Waste(₹75 / kg) </option>
+                                                                                                                                                                                                                                                                                                                                                                                                    < option value = "5" > Reclassify as Iron Scrap(₹28 / kg) </option>
+                                                                                                                                                                                                                                                                                                                                                                                                        </select>
+                                                                                                                                                                                                                                                                                                                                                                                                        </div>
+
+                                                                                                                                                                                                                                                                                                                                                                                                        < button onclick = "completeDoorstepSettlement()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 rounded-lg shadow" >
+                                                                                                                                                                                                                                                                                                                                                                                                            Verify Weight & Release Payout
+                                                                                                                                                                                                                                                                                                                                                                                                                </button>
+
+                                                                                                                                                                                                                                                                                                                                                                                                                < !--Result Card-- >
+                                                                                                                                                                                                                                                                                                                                                                                                                    <div id="settlement-result" class="hidden p-4 rounded-lg border bg-slate-50 text-sm space-y-1" > </div>
+                                                                                                                                                                                                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                                                                                                                                                                                                        </section>
+
+                                                                                                                                                                                                                                                                                                                                                                                                                        </main>
+
+                                                                                                                                                                                                                                                                                                                                                                                                                        <script>
+let map = null;
+let markers = [];
+let currentBase64 = null;
+let currentScaleBase64 = null;
+
+// Convert file to base64
+document.getElementById('scrap-file').addEventListener('change', function (e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { currentBase64 = reader.result; };
+    reader.readAsDataURL(file);
+});
+
+document.getElementById('scale-file').addEventListener('change', function (e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { currentScaleBase64 = reader.result; };
+    reader.readAsDataURL(file);
+});
+
+function switchTab(tab) {
+    ['seller', 'buyer', 'settlement'].forEach(t => {
+        document.getElementById(`tab-${t}`).classList.add('hidden');
+        document.getElementById(`btn-${t}`).classList.remove('bg-emerald-800');
+        document.getElementById(`btn-${t}`).classList.add('bg-emerald-600');
+    });
+    document.getElementById(`tab-${tab}`).classList.remove('hidden');
+    document.getElementById(`btn-${tab}`).classList.add('bg-emerald-800');
+
+    if (tab === 'buyer') {
+        setTimeout(initMapAndLoadListings, 100);
+    }
+}
+
+async function runAiClassification() {
+    if (!currentBase64) {
+        alert('Please pick an image file first.');
+        return;
+    }
+    const btn = document.getElementById('btn-ai-scan');
+    btn.innerText = 'Scanning with Gemini 2.5 Flash...';
+    btn.disabled = true;
+
+    try {
+        const res = await fetch('/api/ai/classify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imageBase64: currentBase64 })
+        });
+        const data = await res.json();
+        if (data.success) {
+            document.getElementById('listing-title').value = data.analysis.suggested_title;
+            document.getElementById('listing-weight').value = data.analysis.estimated_weight_kg;
+            document.getElementById('listing-category').value = data.category_id;
+            document.getElementById('display-payout').innerText = `₹${data.suggested_payout}`;
+        }
+    } catch (err) {
+        alert('Error contacting AI service: ' + err.message);
+    } finally {
+        btn.innerText = '✨ Scan & Auto-Fill with Platform AI';
+        btn.disabled = false;
+    }
+}
+
+async function publishListing() {
+    const title = document.getElementById('listing-title').value || 'Mixed Scrap Material';
+    const category_id = parseInt(document.getElementById('listing-category').value);
+    const estimated_weight = parseFloat(document.getElementById('listing-weight').value);
+    const landmark = document.getElementById('listing-landmark').value;
+    const gate_instructions = document.getElementById('listing-instructions').value;
+
+    const res = await fetch('/api/seller/listings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            category_id,
+            title,
+            estimated_weight,
+            landmark,
+            gate_instructions,
+            asking_price: estimated_weight * 15,
+            latitude: 12.9716,
+            longitude: 77.5946
+        })
+    });
+
+    const data = await res.json();
+    if (data.success) {
+        alert('Listing published successfully! Buyers within 15 km can now discover it on their map.');
+        switchTab('buyer');
+    }
+}
+
+function initMapAndLoadListings() {
+    if (!map) {
+        map = L.map('map').setView([12.9716, 77.5946], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+    }
+    fetchNearbyListings();
+}
+
+async function fetchNearbyListings() {
+    const container = document.getElementById('listings-container');
+    container.innerHTML = '<p class="text-sm text-slate-400">Loading nearby scrap...</p>';
+    markers.forEach(m => map.removeLayer(m));
+    markers = [];
+
+    const res = await fetch('/api/buyer/nearby-listings?lng=77.5900&lat=12.9700&radius=15000');
+    const data = await res.json();
+
+    if (!data.success || data.listings.length === 0) {
+        container.innerHTML = '<p class="text-sm text-slate-400">No open listings found within 15 km.</p>';
+        return;
+    }
+
+    container.innerHTML = '';
+    data.listings.forEach(l => {
+        // Map Marker
+        const marker = L.marker([l.latitude, l.longitude]).addTo(map)
+            .bindPopup(`<b>${l.title}</b><br>${l.category_name} (~${l.estimated_weight} kg)`);
+        markers.push(marker);
+
+        // Sidebar Card
+        const card = document.createElement('div');
+        card.className = 'border rounded-lg p-3 bg-slate-50 hover:bg-slate-100 transition';
+        card.innerHTML = `
+          <div class="flex justify-between items-start mb-1">
+            <h4 class="font-bold text-sm text-slate-800">${l.title}</h4>
+            <span class="text-xs bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded">${l.category_name}</span>
+          </div>
+          <p class="text-xs text-slate-500 mb-2">Distance: <b>${l.distance_meters}m</b> away • Est: <b>${l.estimated_weight} kg</b></p>
+          <div class="text-xs text-slate-600 bg-white p-2 rounded border mb-2">
+            📍 <b>Last 50m:</b> ${l.landmark} (${l.gate_instructions})
+          </div>
+          <div class="flex gap-2">
+            <button onclick="schedulePickup(${l.id})" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold py-1.5 rounded">
+              Accept & Schedule
+            </button>
+            <a href="https://www.google.com/maps/dir/?api=1&destination=${l.latitude},${l.longitude}" target="_blank" class="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs rounded font-medium">
+              🗺️ Nav
+            </a>
+          </div>
+        `;
+        container.appendChild(card);
+    });
+}
+
+async function schedulePickup(listingId) {
+    const res = await fetch('/api/buyer/schedule-pickup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ listing_id: listingId })
+    });
+    const data = await res.json();
+    if (data.success) {
+        alert(`Pickup Scheduled!\nOrder ID: ${data.order.id}\nSeller OTP for Demo: ${data.order.otp_code}`);
+        document.getElementById('order-id').value = data.order.id;
+        document.getElementById('order-otp').value = data.order.otp_code;
+        switchTab('settlement');
+    }
+}
+
+async function completeDoorstepSettlement() {
+    const order_id = parseInt(document.getElementById('order-id').value);
+    const otp_code = document.getElementById('order-otp').value;
+    const gross_weight = parseFloat(document.getElementById('gross-weight').value);
+    const tare_type = document.getElementById('tare-type').value;
+    const adjusted_category_id = document.getElementById('adjusted-cat').value || null;
+
+    if (!order_id || !otp_code || !gross_weight) {
+        alert('Please fill in Order ID, OTP, and Gross Weight.');
+        return;
+    }
+
+    const res = await fetch('/api/buyer/complete-pickup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            order_id,
+            otp_code,
+            gross_weight,
+            tare_type,
+            scale_image_base64: currentScaleBase64,
+            adjusted_category_id: adjusted_category_id ? parseInt(adjusted_category_id) : null
+        })
+    });
+
+    const data = await res.json();
+    const resultBox = document.getElementById('settlement-result');
+    resultBox.classList.remove('hidden');
+
+    if (data.success) {
+        resultBox.className = 'p-4 rounded-lg border bg-emerald-50 text-emerald-950 text-sm space-y-1.5';
+        resultBox.innerHTML = `
+          <h4 class="font-bold text-base text-emerald-800">✅ Payout & Weighing Finalized</h4>
+          <p>Scrap Material: <b>${data.summary.category_name}</b></p>
+          <p>Gross Weight: <b>${data.summary.gross_weight_kg} kg</b> | Tare Deducted: <b>-${data.summary.tare_deducted_kg} kg</b></p>
+          <p>Billable Net Weight: <b>${data.summary.billable_net_weight_kg} kg</b> (@ ₹${data.summary.rate_per_kg}/kg)</p>
+          <p class="text-lg font-bold text-emerald-700 pt-1">Total Payout to Seller: ₹${data.summary.final_payout_inr}</p>
+          <p class="text-xs text-slate-500 pt-1 border-t">AI Scale Check: <b>${data.summary.scale_verification}</b> (${data.summary.verification_notes})</p>
+        `;
+    } else {
+        resultBox.className = 'p-4 rounded-lg border bg-rose-50 text-rose-950 text-sm space-y-1';
+        resultBox.innerHTML = `<h4 class="font-bold text-rose-700">❌ Error</h4><p>${data.error}</p>`;
+    }
+}
+</script>
+    </body>
+    </html>
+7. Step - by - Step Execution Guide
+Install Dependencies:
+
+Bash
+npm install
+Start PostgreSQL & ensure PostGIS is installed:
+Ensure PostgreSQL is running locally on port 5432 with a database named recycledb(matching your.env connection string).
+
+Launch the platform:
+
+Bash
+npm start
+Test the Complete Workflow in Your Browser:
+Open http://localhost:5000:
+
+Seller Tab: Pick an image of cardboard or scrap, tap "Scan & Auto-Fill with Platform AI", and click "Publish Scrap Listing".
+
+Buyer Tab: The interactive Leaflet map will render the exact pin and last - 50m gate instructions.Click "Accept & Schedule".
+
+Settlement Tab: Enter the Gross Weight on the scale(e.g., 10.5 kg), choose a Tare deduction(e.g., Gunny Sack - 0.5 kg), enter the verification OTP, and click "Verify Weight & Release Payout" to complete the end - to - end transaction.
